@@ -22,16 +22,17 @@ public class StoryComposer {
     private async Task OnPlayerSpeakAsync(string playerId, string? targetCharacterId, string gameTime, string text) {
         try {
             Log.Trace("Querying observers for player {PlayerId}", playerId);
-            var observerIds = await _directorHelper.QueryObserverIdsAsync(playerId, targetCharacterId != null ? [targetCharacterId] : null);
-            Log.Trace("Got {Count} observers, registering event", observerIds.Length);
+            var observers = await _directorHelper.QueryObserversAsync(playerId, targetCharacterId != null ? [targetCharacterId] : null);
+            Log.Trace("Got {Count} observers, registering event", observers.Ids.Length);
 
             var evt = StoryEvent.Create(new StoryEvent.PlayerSpeak {
                 PlayerCharacterId = playerId,
                 TargetCharacterId = targetCharacterId,
-                GameTime = gameTime,
+                // The client can't see the game clock, the mod reports it along with the observers
+                GameTime = observers.GameTime ?? gameTime,
                 Text = text,
             });
-            _story.RegisterEvent(evt, observerIds);
+            _story.RegisterEvent(evt, observers.Ids);
         }
         catch (Exception ex) {
             Log.Error("OnPlayerSpeakAsync failed: {Error}", ex.Message);

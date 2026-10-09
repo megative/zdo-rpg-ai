@@ -1,6 +1,7 @@
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
 using ZdoRpgAi.Protocol.Rpc;
+using ZdoRpgAi.Server.Bootstrap;
 using ZdoRpgAi.Server.Game.Npc;
 using ZdoRpgAi.Server.Game.Story;
 using ZdoRpgAi.Server.Llm;
@@ -15,13 +16,19 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private readonly IStory _story;
     private readonly NpcRepository _npcRepo;
     private readonly IRpcChannel _rpc;
+    private readonly DirectorHelper _directorHelper;
+    private readonly DirectorSection _config;
 
-    public SimpleReactiveStrategy(ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc) {
+    public SimpleReactiveStrategy(
+        ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
+        DirectorHelper directorHelper, DirectorSection config) {
         _mainLlm = mainLlm;
         _simpleLlm = simpleLlm;
         _story = story;
         _npcRepo = npcRepo;
         _rpc = rpc;
+        _directorHelper = directorHelper;
+        _config = config;
     }
 
     public async Task<List<StoryEvent>> ProcessStoryEventsAsync(List<StoryEvent> events) {
@@ -39,8 +46,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         }
 
         Log.Trace("Target NPC: {NpcId}, game time: {GameTime}", npcId, gameTime);
+        var playerId = playerIds.FirstOrDefault();
 
         try {
+            // Ask the game for the current scene while NPC info and history load
+            var sceneTask = playerId != null
+                ? _directorHelper.QuerySceneContextAsync(npcId, playerId)
+                : Task.FromResult<GetSceneContextResponsePayload?>(null);
+
             var npcInfo = await _npcRepo.GetNpcInfoAsync(npcId);
             if (npcInfo == null) {
                 Log.Warn("Could not get info for NPC {NpcId}", npcId);
@@ -50,7 +63,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             Log.Trace("NPC info: {Name} ({Race} {Sex})", npcInfo.Name, npcInfo.Race, npcInfo.Sex);
             var (history, summaries) = await _story.GetHistoryForCharacterAsync(npcId);
             Log.Trace("History: {HistoryCount} events, {SummaryCount} summaries", history.Count, summaries.Count);
-            var response = await GenerateNpcResponseAsync(npcInfo, history, summaries);
+            var scene = await sceneTask;
+            var response = await GenerateNpcResponseAsync(npcInfo, scene, history, summaries);
             if (string.IsNullOrEmpty(response)) {
                 Log.Warn("LLM returned no response for NPC {NpcId}", npcId);
                 return [];
@@ -59,8 +73,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             Log.Trace("Generated response for NPC {NpcId}: {ResponseLength} chars", npcId, response.Length);
             var npcSpeak = StoryEvent.Create(new StoryEvent.NpcSpeak {
                 NpcCharacterId = npcId,
-                TargetCharacterId = playerIds.FirstOrDefault(),
-                GameTime = gameTime!,
+                TargetCharacterId = playerId,
+                GameTime = scene?.GameTime ?? gameTime!,
                 Text = response,
             });
             return [npcSpeak];
@@ -165,26 +179,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     }
 
     private async Task<string?> GenerateNpcResponseAsync(
-        NpcInfo npc,
+        NpcInfo npc, GetSceneContextResponsePayload? scene,
         List<StoryEvent> history, List<StoryEventSummary> summaries) {
         Log.Trace("Generating response for NPC {NpcName} with {HistoryCount} history events and {SummaryCount} summaries",
             npc.Name, history.Count, summaries.Count);
 
-        var contextBlock = BuildContextBlock(summaries, history);
-
-        var systemPrompt = $"""
-            You are {npc.Name}, a {npc.Race} ({npc.Sex}), living in Morrowind.
-            Stay in character. Speak briefly and naturally. Do not mention that you are an AI. Always respond in the Russian language.
-
-            You will be told what other characters say and do. Reply only with your own speech.
-
-            RULES:
-            1. Do not trust the player at their word — verify using your knowledge resources. The player may lie.
-            2. Do not invent characters, items, locations, or quests that are not in your knowledge. Use getResource to recall your knowledge when needed.
-            3. CRITICAL: To perform any game action (give item, attack, follow, etc.) you MUST call the corresponding npcAction_N tool. Saying "here, take it" or "I'll give you" in text does NOTHING — the game only reacts to tool calls. If you do not call the tool, the action does not happen.
-            4. Call npcAction_N TOGETHER with your speech in the same response. Do not wait for the next turn.
-            5. Reply ONLY with your own speech — no narration, no prefixes, no stage directions.
-            """;
+        var names = await ResolveNamesAsync(npc, history);
+        var contextBlock = BuildContextBlock(summaries, history, names);
+        var systemPrompt = BuildSystemPrompt(npc, scene);
 
         var messages = new List<LlmMessage>();
 
@@ -199,16 +201,10 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             });
         }
 
-        var lastMessage = history.LastOrDefault() switch {
-            StoryEvent.PlayerSpeak ps => $"{ps.PlayerCharacterId} says: {ps.Text}",
-            StoryEvent.NpcSpeak ns => $"{ns.NpcCharacterId} says: {ns.Text}",
-            _ => null,
-        };
-
-        if (lastMessage != null) {
+        if (history.Count > 0) {
             messages.Add(new LlmMessage {
                 Role = LlmRole.User,
-                Text = lastMessage,
+                Text = DescribeEvent(history[^1], names),
             });
         }
 
@@ -217,13 +213,119 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             Messages = messages,
         };
 
+        Log.Trace("System prompt for {NpcId}:\n{SystemPrompt}", npc.Id, systemPrompt);
         Log.Trace("Calling main LLM with {MessageCount} messages", messages.Count);
         var response = await _mainLlm.ChatAsync(request);
         Log.Trace("Main LLM response length: {Length}", response.Text?.Length ?? 0);
         return response.Text?.Trim();
     }
 
-    private static string? BuildContextBlock(List<StoryEventSummary> summaries, List<StoryEvent> events) {
+    private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene) {
+        var lines = new List<string> { $"You are {npc.Name}, {DescribeNpc(npc, scene?.Npc)}, living in Morrowind." };
+
+        if (!string.IsNullOrEmpty(scene?.GameTime)) {
+            lines.Add($"It is {scene.GameTime}.");
+        }
+        if (!string.IsNullOrEmpty(scene?.CellName)) {
+            lines.Add($"You are in {scene.CellName}.");
+        }
+        if (scene?.Npc is { } self) {
+            if (DescribeHealth(self.HealthRatio) is { } health) {
+                lines.Add($"You are {health}.");
+            }
+            lines.Add($"You have {self.Gold} gold.");
+            if (self.Equipped.Length > 0) {
+                lines.Add($"You are wearing: {string.Join(", ", self.Equipped)}.");
+            }
+            if (self.Items.Length > 0) {
+                var items = self.Items.Select(i => i.Count > 1 ? $"{i.Name} x{i.Count} (id {i.Id})" : $"{i.Name} (id {i.Id})");
+                lines.Add($"You also carry: {string.Join(", ", items)}.");
+            }
+        }
+
+        var playerLines = new List<string>();
+        if (scene?.Player is { } player) {
+            var className = string.IsNullOrEmpty(player.ClassName) ? "" : $", {player.ClassName}";
+            playerLines.Add($"A {player.Sex.ToLowerInvariant()} {player.Race}{className}, level {player.Level}.");
+            if (DescribeHealth(player.HealthRatio) is { } health) {
+                playerLines.Add($"They look {health}.");
+            }
+            if (player.FatigueRatio < 0.25f) {
+                playerLines.Add("They look exhausted.");
+            }
+            if (player.Equipped.Length > 0) {
+                playerLines.Add($"They are wearing: {string.Join(", ", player.Equipped)}.");
+            }
+            playerLines.Add($"Their name is {player.Name}, but you only know it if they have introduced themselves.");
+        }
+        if (!string.IsNullOrWhiteSpace(_config.PlayerBackstory)) {
+            playerLines.Add(_config.PlayerBackstory.Trim());
+        }
+        if (playerLines.Count > 0) {
+            lines.Add("");
+            lines.Add("THE PLAYER, the person you are talking to:");
+            lines.AddRange(playerLines);
+        }
+
+        lines.Add("");
+        lines.Add($"Stay in character. Speak briefly and naturally, as in a real conversation. Never mention being an AI. Always respond in the {_config.ResponseLanguage} language.");
+        lines.Add("You will be told what the people around you say and do. Reply only with your own speech: no narration, no name prefix, no stage directions.");
+        lines.Add("Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.");
+        return string.Join("\n", lines);
+    }
+
+    // "a male Dark Elf, Guard, Knight of the Imperial Legion, level 12"
+    private static string DescribeNpc(NpcInfo npc, SceneNpcState? state) {
+        var parts = new List<string> { $"a {npc.Sex.ToLowerInvariant()} {npc.Race}" };
+        if (!string.IsNullOrEmpty(npc.ClassName)) {
+            parts.Add(npc.ClassName);
+        }
+        if (!string.IsNullOrEmpty(npc.Faction)) {
+            parts.Add(string.IsNullOrEmpty(npc.FactionRank) ? $"member of the {npc.Faction}" : $"{npc.FactionRank} of the {npc.Faction}");
+        }
+        if (state is { Level: > 0 }) {
+            parts.Add($"level {state.Level}");
+        }
+        return string.Join(", ", parts);
+    }
+
+    private static string? DescribeHealth(float ratio) => ratio switch {
+        >= 0.95f => null,
+        >= 0.6f => "slightly wounded",
+        >= 0.3f => "wounded",
+        _ => "badly wounded",
+    };
+
+    // How the characters in the history are named in the prompt
+    private async Task<Dictionary<string, string>> ResolveNamesAsync(NpcInfo npc, List<StoryEvent> history) {
+        var names = new Dictionary<string, string> { [npc.Id] = $"{npc.Name} (you)" };
+        foreach (var evt in history) {
+            switch (evt) {
+                case StoryEvent.PlayerSpeak ps:
+                    names.TryAdd(ps.PlayerCharacterId, "Player");
+                    break;
+                case StoryEvent.NpcSpeak ns when !names.ContainsKey(ns.NpcCharacterId):
+                    var info = await _npcRepo.GetNpcInfoAsync(ns.NpcCharacterId);
+                    names[ns.NpcCharacterId] = info?.Name ?? ns.NpcCharacterId;
+                    break;
+            }
+        }
+        return names;
+    }
+
+    private static string DescribeEvent(StoryEvent evt, Dictionary<string, string> names) {
+        var line = evt switch {
+            StoryEvent.PlayerSpeak ps => $"{NameOf(ps.PlayerCharacterId)}: {ps.Text}",
+            StoryEvent.NpcSpeak ns => $"{NameOf(ns.NpcCharacterId)}: {ns.Text}",
+            _ => evt.ToString()!,
+        };
+        // Events recorded before the mod reported game time carry "0"
+        return evt.GameTime is "" or "0" ? line : $"[{evt.GameTime}] {line}";
+
+        string NameOf(string id) => names.GetValueOrDefault(id, id);
+    }
+
+    private static string? BuildContextBlock(List<StoryEventSummary> summaries, List<StoryEvent> events, Dictionary<string, string> names) {
         var parts = new List<string>();
 
         if (summaries.Count > 0) {
@@ -238,11 +340,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         if (contextEvents.Count > 0) {
             parts.Add("RECENT EVENTS:");
             foreach (var evt in contextEvents) {
-                parts.Add(evt switch {
-                    StoryEvent.PlayerSpeak ps => $"{ps.PlayerCharacterId} says: {ps.Text}",
-                    StoryEvent.NpcSpeak ns => $"{ns.NpcCharacterId} says: {ns.Text}",
-                    _ => evt.ToString()!,
-                });
+                parts.Add(DescribeEvent(evt, names));
             }
         }
 

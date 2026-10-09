@@ -22,6 +22,9 @@ public class ServerConfig {
 public class DirectorSection {
     public int CompactThreshold { get; set; } = 30;
     public int CompactKeepRecent { get; set; } = 10;
+    public string ResponseLanguage { get; set; } = "Russian";
+    // Who the player character is, as NPCs could know it at a glance or from rumours
+    public string PlayerBackstory { get; set; } = "";
 }
 
 public class DatabaseSection {

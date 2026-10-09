@@ -26,7 +26,7 @@ public class DirectorHelper {
             mp3.Mp3Bytes);
     }
 
-    public async Task<string[]> QueryObserverIdsAsync(string characterId, string[]? excludeIds) {
+    public async Task<Observers> QueryObserversAsync(string characterId, string[]? excludeIds) {
         try {
             var response = await _rpc.CallAsync(
                 nameof(ServerToModMessageType.GetCharactersWhoHear),
@@ -37,14 +37,34 @@ public class DirectorHelper {
             var payload = response.Json?.DeserializeSafe(PayloadJsonContext.Default.GetCharactersWhoHearResponsePayload);
             var characters = payload?.Characters ?? [];
 
-            return characters
+            var ids = characters
                 .Select(c => c.CharacterId)
                 .Where(id => id != characterId && (excludeIds == null ? true : !excludeIds.Contains(id)))
                 .ToArray();
+            return new Observers(ids, payload?.GameTime);
         }
         catch (Exception ex) {
             Log.Warn("Failed to query observers: {Error}", ex.Message);
-            return [];
+            return new Observers([], null);
+        }
+    }
+
+    public async Task<GetSceneContextResponsePayload?> QuerySceneContextAsync(string npcId, string playerId) {
+        try {
+            var response = await _rpc.CallAsync(
+                nameof(ServerToModMessageType.GetSceneContext),
+                JsonExtensions.SerializeToObject(
+                    new GetSceneContextRequestPayload(npcId, playerId),
+                    PayloadJsonContext.Default.GetSceneContextRequestPayload));
+
+            return response.Json?.DeserializeSafe(PayloadJsonContext.Default.GetSceneContextResponsePayload);
+        }
+        catch (Exception ex) {
+            Log.Warn("Failed to query scene context: {Error}", ex.Message);
+            return null;
         }
     }
 }
+
+// GameTime is the in-game time when the mod answered, null if the mod didn't report it
+public record Observers(string[] Ids, string? GameTime);

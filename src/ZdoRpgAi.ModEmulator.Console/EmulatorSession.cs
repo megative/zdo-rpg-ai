@@ -80,6 +80,9 @@ public class EmulatorSession {
             case nameof(ServerToModMessageType.GetCharactersWhoHear):
                 HandleGetCharactersWhoHear(msg);
                 break;
+            case nameof(ServerToModMessageType.GetSceneContext):
+                HandleGetSceneContext(msg);
+                break;
             case nameof(ServerToModMessageType.SpeechRecognitionInProgress):
                 HandleSpeechRecognitionInProgress(msg);
                 break;
@@ -152,10 +155,20 @@ public class EmulatorSession {
         if (req == null) return;
 
         var characters = SeydaNeenWorld.GetCharactersWhoHear(req.CharacterId, req.MaxDistanceMeters);
-        var response = new GetCharactersWhoHearResponsePayload(characters);
+        var response = new GetCharactersWhoHearResponsePayload(characters, SeydaNeenWorld.GameTime);
         var payload = JsonExtensions.SerializeToObject(response, PayloadJsonContext.Default.GetCharactersWhoHearResponsePayload);
         _rpc.Respond(nameof(ModToServerMessageType.GetCharactersWhoHearResponse), msg.Id, payload);
         Log.Info("GetCharactersWhoHear ({CharacterId}): {Count} nearby", req.CharacterId, characters.Length);
+    }
+
+    private void HandleGetSceneContext(Message msg) {
+        var req = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.GetSceneContextRequestPayload);
+        if (req == null) return;
+
+        var scene = SeydaNeenWorld.GetSceneContext(req.NpcId);
+        var payload = JsonExtensions.SerializeToObject(scene, PayloadJsonContext.Default.GetSceneContextResponsePayload);
+        _rpc.Respond(nameof(ServerToModMessageType.GetSceneContext), msg.Id, payload);
+        Log.Info("GetSceneContext ({NpcId})", req.NpcId);
     }
 
     private void HandleSpeechRecognitionInProgress(Message msg) {

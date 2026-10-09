@@ -1,6 +1,7 @@
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
 using ZdoRpgAi.Protocol.Rpc;
+using ZdoRpgAi.Server.Bootstrap;
 using ZdoRpgAi.Server.Game.Npc;
 using ZdoRpgAi.Server.Game.Story;
 using ZdoRpgAi.Server.Llm;
@@ -24,13 +25,13 @@ public class Director {
 
     private int PlayerInterruptionIteration => Volatile.Read(ref _playerInterruptionIteration);
 
-    public Director(Story.Story story, DirectorHelper directorHelper, NpcSpeechGenerator npcSpeechGenerator, IRpcChannel rpc, ILlm mainLlm, ILlm simpleLlm, NpcRepository npcRepo) {
+    public Director(Story.Story story, DirectorHelper directorHelper, NpcSpeechGenerator npcSpeechGenerator, IRpcChannel rpc, ILlm mainLlm, ILlm simpleLlm, NpcRepository npcRepo, DirectorSection config) {
         _story = story;
         _directorHelper = directorHelper;
         _npcSpeechGenerator = npcSpeechGenerator;
         _rpc = rpc;
         _npcRepo = npcRepo;
-        _simpleReactive = new SimpleReactiveStrategy(mainLlm, simpleLlm, story, npcRepo, rpc);
+        _simpleReactive = new SimpleReactiveStrategy(mainLlm, simpleLlm, story, npcRepo, rpc, directorHelper, config);
         story.EventRegistered += OnStoryEventRegistered;
     }
 
@@ -115,7 +116,7 @@ public class Director {
             }
 
             if (!observersCache.TryGetValue(mainCharId, out var observerIds)) {
-                observerIds = await _directorHelper.QueryObserverIdsAsync(mainCharId, targetCharId != null ? [targetCharId] : null);
+                observerIds = (await _directorHelper.QueryObserversAsync(mainCharId, targetCharId != null ? [targetCharId] : null)).Ids;
                 observersCache[mainCharId] = observerIds;
             }
 

@@ -15,4 +15,4 @@ public record TargetChangedPayload(string PlayerId, string? NpcId);
 public record CellChangePayload(string PlayerId, string CellName);
 public record GameSaveLoadPayload();
 public record NearbyCharacterInfo(string CharacterId, float DistanceMeters);
-public record GetCharactersWhoHearResponsePayload(NearbyCharacterInfo[] Characters);
+public record GetCharactersWhoHearResponsePayload(NearbyCharacterInfo[] Characters, string? GameTime = null);

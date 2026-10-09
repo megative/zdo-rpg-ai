@@ -65,6 +65,10 @@ stt:
 director:
   compactThreshold: 30
   compactKeepRecent: 10
+  # Language NPCs speak in
+  responseLanguage: Russian
+  # Optional: who the player character is, e.g. "A former Imperial prisoner who arrived in Seyda Neen by boat."
+  playerBackstory: ""
 
 # LLM (dummy | gemini | openai)
 llm:
