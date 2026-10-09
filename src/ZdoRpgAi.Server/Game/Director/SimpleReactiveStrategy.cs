@@ -51,7 +51,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             var (history, summaries) = await _story.GetHistoryForCharacterAsync(npcId);
             Log.Trace("History: {HistoryCount} events, {SummaryCount} summaries", history.Count, summaries.Count);
             var response = await GenerateNpcResponseAsync(npcInfo, history, summaries);
-            if (response == null) {
+            if (string.IsNullOrEmpty(response)) {
                 Log.Warn("LLM returned no response for NPC {NpcId}", npcId);
                 return [];
             }

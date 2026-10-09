@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Channel;
@@ -28,7 +29,6 @@ public class OpenmwModChannel : IChannel {
 
     // Incoming state (log tailing)
     private long _logPosition;
-    private int _lastSeenModMsgId;
 
     public event Action<Message>? MessageReceived;
     public event Action? Disconnected;
@@ -110,36 +110,8 @@ public class OpenmwModChannel : IChannel {
     }
 
     private bool TryReadHandshakeAck(string sessionId) {
-        if (!File.Exists(_logFilePath)) {
-            Log.Trace($"Noop because file does not exist");
-            return false;
-        }
-
-        var fileInfo = new FileInfo(_logFilePath);
-        if (fileInfo.Length < _logPosition) {
-            _logPosition = 0;
-        }
-
-        if (fileInfo.Length == _logPosition) {
-            Log.Trace($"Noop because file length is the same as last log position");
-            return false;
-        }
-
-        string newContent;
-        try {
-            using var fs = new FileStream(_logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            fs.Seek(_logPosition, SeekOrigin.Begin);
-            using var reader = new StreamReader(fs);
-            newContent = reader.ReadToEnd();
-            _logPosition = fs.Position;
-        }
-        catch (IOException e) {
-            Log.Trace($"Opening FileStream fails {e}");
-            return false;
-        }
-
-        if (string.IsNullOrEmpty(newContent)) {
-            Log.Trace($"Noop because newContent is empty");
+        var newContent = ReadNewLogContent();
+        if (newContent == null) {
             return false;
         }
 
@@ -184,12 +156,6 @@ public class OpenmwModChannel : IChannel {
                 continue;
             }
 
-            var msgId = obj["id"]?.GetValue<int>() ?? 0;
-            Log.Debug($"Saw StartSessionAck with msgId={msgId}");
-            if (msgId > _lastSeenModMsgId) {
-                _lastSeenModMsgId = msgId;
-            }
-
             return true;
         }
 
@@ -213,35 +179,49 @@ public class OpenmwModChannel : IChannel {
         File.Move(tmpPath, _outFilePath, overwrite: true);
     }
 
-    private void ReadLogLines() {
+    // Returns the complete lines appended to the log since the last call. A trailing line without
+    // '\n' is left for the next poll: the game may still be writing it.
+    private string? ReadNewLogContent() {
         if (!File.Exists(_logFilePath)) {
-            return;
+            return null;
         }
 
-        var fileInfo = new FileInfo(_logFilePath);
+        var length = new FileInfo(_logFilePath).Length;
 
         // Handle log rotation (file got smaller)
-        if (fileInfo.Length < _logPosition) {
+        if (length < _logPosition) {
             _logPosition = 0;
         }
 
-        if (fileInfo.Length == _logPosition) {
-            return;
+        if (length == _logPosition) {
+            return null;
         }
 
-        string newContent;
+        byte[] bytes;
         try {
             using var fs = new FileStream(_logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             fs.Seek(_logPosition, SeekOrigin.Begin);
-            using var reader = new StreamReader(fs);
-            newContent = reader.ReadToEnd();
-            _logPosition = fs.Position;
+            using var buffer = new MemoryStream();
+            fs.CopyTo(buffer);
+            bytes = buffer.ToArray();
         }
-        catch (IOException) {
-            return;
+        catch (IOException e) {
+            Log.Trace($"Opening FileStream fails {e}");
+            return null;
         }
 
-        if (string.IsNullOrEmpty(newContent)) {
+        var lastNewline = Array.LastIndexOf(bytes, (byte)'\n');
+        if (lastNewline < 0) {
+            return null;
+        }
+
+        _logPosition += lastNewline + 1;
+        return Encoding.UTF8.GetString(bytes, 0, lastNewline + 1);
+    }
+
+    private void ReadLogLines() {
+        var newContent = ReadNewLogContent();
+        if (newContent == null) {
             return;
         }
 
@@ -288,15 +268,8 @@ public class OpenmwModChannel : IChannel {
             return;
         }
 
-        var msgId = obj["id"]?.GetValue<int>() ?? 0;
-        if (msgId > 0 && msgId <= _lastSeenModMsgId) {
-            return;
-        }
-
-        if (msgId > _lastSeenModMsgId) {
-            _lastSeenModMsgId = msgId;
-        }
-
+        // No dedupe by id: the log is read strictly forward, so a line is never seen twice, while
+        // mod ids do go backwards — the counter restarts with the game and is restored from saves.
         var msg = Message.FromJson(obj);
         Log.Trace("RECV {Type}: {Json}", msg.Type, jsonStr);
         MessageReceived?.Invoke(msg);

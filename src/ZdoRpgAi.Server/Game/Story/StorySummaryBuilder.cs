@@ -11,7 +11,8 @@ public class StorySummaryBuilder {
         _simpleLlm = simpleLlm;
     }
 
-    public async Task<string> SummarizeEventsAsync(List<StoryEvent> events) {
+    // Returns null if the LLM gave no summary, so the caller doesn't archive events behind a placeholder.
+    public async Task<string?> SummarizeEventsAsync(List<StoryEvent> events) {
         var lines = new List<string>();
         foreach (var evt in events) {
             if (evt is StoryEvent.PlayerSpeak ps) {
@@ -33,10 +34,10 @@ public class StorySummaryBuilder {
         };
 
         var response = await _simpleLlm.ChatAsync(request);
-        return response.Text?.Trim() ?? "Summary unavailable.";
+        return NullIfEmpty(response.Text);
     }
 
-    public async Task<string> ConsolidateSummariesAsync(List<StoryEventSummary> summaries) {
+    public async Task<string?> ConsolidateSummariesAsync(List<StoryEventSummary> summaries) {
         var text = string.Join("\n\n", summaries.Select((s, i) => $"Summary {i + 1}:\n{s.Summary}"));
 
         var request = new LlmRequest {
@@ -50,6 +51,11 @@ public class StorySummaryBuilder {
         };
 
         var response = await _simpleLlm.ChatAsync(request);
-        return response.Text?.Trim() ?? "Summary unavailable.";
+        return NullIfEmpty(response.Text);
+    }
+
+    private static string? NullIfEmpty(string? text) {
+        var trimmed = text?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed;
     }
 }

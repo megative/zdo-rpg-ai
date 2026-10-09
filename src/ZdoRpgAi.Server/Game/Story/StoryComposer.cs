@@ -1,7 +1,4 @@
 using ZdoRpgAi.Core;
-using ZdoRpgAi.Protocol.Channel;
-using ZdoRpgAi.Protocol.Messages;
-using ZdoRpgAi.Protocol.Rpc;
 using ZdoRpgAi.Server.Game.Director;
 
 namespace ZdoRpgAi.Server.Game.Story;
@@ -12,10 +9,9 @@ public class StoryComposer {
     private readonly Story _story;
     private readonly DirectorHelper _directorHelper;
 
-    public StoryComposer(Story story, DirectorHelper directorHelper, IRpcChannel rpc) {
+    public StoryComposer(Story story, DirectorHelper directorHelper) {
         _story = story;
         _directorHelper = directorHelper;
-        rpc.MessageReceived += OnMessageReceived;
     }
 
     public void OnPlayerSpeak(string playerId, string? targetCharacterId, string gameTime, string text) {
@@ -39,20 +35,6 @@ public class StoryComposer {
         }
         catch (Exception ex) {
             Log.Error("OnPlayerSpeakAsync failed: {Error}", ex.Message);
-        }
-    }
-
-    private void OnMessageReceived(Message msg) {
-        switch (msg.Type) {
-            case nameof(ClientToServerMessageType.PlayerSpeaksText): {
-                    var payload = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.PlayerSpeaksTextPayload);
-                    if (payload == null) {
-                        return;
-                    }
-
-                    OnPlayerSpeak(payload.PlayerId, payload.TargetCharacterId, payload.GameTime, payload.Text);
-                    break;
-                }
         }
     }
 }

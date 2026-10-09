@@ -55,7 +55,7 @@ public class GeminiLlm : ILlm {
 
         if (!resp.IsSuccessStatusCode) {
             Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, respJson);
-            return new LlmResponse { Text = "[LLM error]" };
+            return new LlmResponse { Text = null };
         }
 
         Log.Trace("Raw response: {Response}", respJson);

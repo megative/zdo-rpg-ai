@@ -38,6 +38,9 @@ public class Mp3SpeedAdjuster {
 
         using var process = Process.Start(psi) ?? throw new Exception("Failed to start ffmpeg");
 
+        // Drain stderr concurrently: ffmpeg blocks once the stderr pipe buffer fills up
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
         var writeTask = Task.Run(async () => {
             await process.StandardInput.BaseStream.WriteAsync(mp3);
             process.StandardInput.BaseStream.Close();
@@ -48,9 +51,9 @@ public class Mp3SpeedAdjuster {
 
         await Task.WhenAll(writeTask, readTask);
         await process.WaitForExitAsync();
+        var stderr = await stderrTask;
 
         if (process.ExitCode != 0) {
-            var stderr = await process.StandardError.ReadToEndAsync();
             Log.Warn("ffmpeg exited with code {Code}: {Stderr}", process.ExitCode, stderr);
             return mp3;
         }
@@ -60,9 +63,10 @@ public class Mp3SpeedAdjuster {
         return result;
     }
 
+    // Invariant culture: with e.g. ru-RU, F4 yields "1,2500", and ffmpeg reads the comma as a filter separator
     private static string BuildAtempoFilter(double factor) {
         if (factor <= 2.0) {
-            return $"atempo={factor:F4}";
+            return FormattableString.Invariant($"atempo={factor:F4}");
         }
 
         var parts = new List<string>();
@@ -70,7 +74,7 @@ public class Mp3SpeedAdjuster {
             parts.Add("atempo=2.0000");
             factor /= 2.0;
         }
-        parts.Add($"atempo={factor:F4}");
+        parts.Add(FormattableString.Invariant($"atempo={factor:F4}"));
         return string.Join(",", parts);
     }
 }

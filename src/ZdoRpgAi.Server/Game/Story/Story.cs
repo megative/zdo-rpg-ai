@@ -39,34 +39,44 @@ public class Story : IStory {
 
         if (events.Count > _config.CompactThreshold) {
             var toCompact = events[..^_config.CompactKeepRecent];
-            events = events[^_config.CompactKeepRecent..];
 
-            var participantIds = CollectParticipantIds(toCompact);
             var summaryText = await _summaryBuilder.SummarizeEventsAsync(toCompact);
-            var realTime = StoryEvent.GetRealTime();
-            var summaryId = _saveGameRepo.AddStoryEventSummary(summaryText, realTime, participantIds);
-            _saveGameRepo.ArchiveStoryEvents(toCompact.Select(e => e.Id).ToArray(), summaryId);
+            if (summaryText == null) {
+                Log.Warn("Failed to summarize {Count} events for {CharacterId}, keeping them uncompacted", toCompact.Count, characterId);
+            }
+            else {
+                events = events[^_config.CompactKeepRecent..];
 
-            Log.Info("Compacted {Count} events into summary #{SummaryId} for {CharacterId}", toCompact.Count, summaryId, characterId);
+                var participantIds = CollectParticipantIds(toCompact);
+                var realTime = StoryEvent.GetRealTime();
+                var summaryId = _saveGameRepo.AddStoryEventSummary(summaryText, realTime, participantIds);
+                _saveGameRepo.ArchiveStoryEvents(toCompact.Select(e => e.Id).ToArray(), summaryId);
 
-            rawSummaries = _saveGameRepo.GetActiveSummariesForCharacter(characterId);
-            summaries = rawSummaries.Select(s => new StoryEventSummary(s.Id, s.Summary, s.RealTime)).ToList();
+                Log.Info("Compacted {Count} events into summary #{SummaryId} for {CharacterId}", toCompact.Count, summaryId, characterId);
+
+                rawSummaries = _saveGameRepo.GetActiveSummariesForCharacter(characterId);
+                summaries = rawSummaries.Select(s => new StoryEventSummary(s.Id, s.Summary, s.RealTime)).ToList();
+            }
         }
 
         if (summaries.Count > _config.CompactThreshold) {
             var toCompact = summaries[..^_config.CompactKeepRecent];
-            summaries = summaries[^_config.CompactKeepRecent..];
 
             var summaryText = await _summaryBuilder.ConsolidateSummariesAsync(toCompact);
-            var realTime = StoryEvent.GetRealTime();
-            var participantIds = new[] { characterId };
-            var newSummaryId = _saveGameRepo.AddStoryEventSummary(summaryText, realTime, participantIds);
-            _saveGameRepo.ArchiveStoryEventSummaries(toCompact.Select(s => s.Id).ToArray(), newSummaryId);
+            if (summaryText == null) {
+                Log.Warn("Failed to consolidate {Count} summaries for {CharacterId}, keeping them as is", toCompact.Count, characterId);
+            }
+            else {
+                var realTime = StoryEvent.GetRealTime();
+                var participantIds = new[] { characterId };
+                var newSummaryId = _saveGameRepo.AddStoryEventSummary(summaryText, realTime, participantIds);
+                _saveGameRepo.ArchiveStoryEventSummaries(toCompact.Select(s => s.Id).ToArray(), newSummaryId);
 
-            Log.Info("Consolidated {Count} summaries into summary #{SummaryId} for {CharacterId}", toCompact.Count, newSummaryId, characterId);
+                Log.Info("Consolidated {Count} summaries into summary #{SummaryId} for {CharacterId}", toCompact.Count, newSummaryId, characterId);
 
-            rawSummaries = _saveGameRepo.GetActiveSummariesForCharacter(characterId);
-            summaries = rawSummaries.Select(s => new StoryEventSummary(s.Id, s.Summary, s.RealTime)).ToList();
+                rawSummaries = _saveGameRepo.GetActiveSummariesForCharacter(characterId);
+                summaries = rawSummaries.Select(s => new StoryEventSummary(s.Id, s.Summary, s.RealTime)).ToList();
+            }
         }
 
         return (events, summaries);

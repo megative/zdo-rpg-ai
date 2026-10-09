@@ -4,6 +4,11 @@ public static class Mp3Duration {
     private static readonly int[] BitratesV1L3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
     private static readonly int[] SampleRatesV1 = [44100, 48000, 32000, 0];
 
+    // MPEG-2 and MPEG-2.5 (lower sample rates), e.g. OpenAI TTS returns 24 kHz MPEG-2 audio
+    private static readonly int[] BitratesV2L3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0];
+    private static readonly int[] SampleRatesV2 = [22050, 24000, 16000, 0];
+    private static readonly int[] SampleRatesV25 = [11025, 12000, 8000, 0];
+
     public static double? Estimate(byte[] data) {
         double totalSeconds = 0;
         int i = 0;
@@ -29,21 +34,24 @@ public static class Mp3Duration {
             int sampleIdx = (header >> 10) & 3;
             int padding = (header >> 9) & 1;
 
-            if (version != 3 || layer != 1 || bitrateIdx == 0 || bitrateIdx == 15 || sampleIdx == 3) {
+            // version: 3 = MPEG-1, 2 = MPEG-2, 0 = MPEG-2.5, 1 = reserved
+            if (version == 1 || layer != 1 || bitrateIdx == 0 || bitrateIdx == 15 || sampleIdx == 3) {
                 i++;
                 continue;
             }
 
-            int bitrate = BitratesV1L3[bitrateIdx] * 1000;
-            int sampleRate = SampleRatesV1[sampleIdx];
-            int frameSize = 144 * bitrate / sampleRate + padding;
+            var isMpeg1 = version == 3;
+            int bitrate = (isMpeg1 ? BitratesV1L3 : BitratesV2L3)[bitrateIdx] * 1000;
+            int sampleRate = (version switch { 3 => SampleRatesV1, 2 => SampleRatesV2, _ => SampleRatesV25 })[sampleIdx];
+            int samplesPerFrame = isMpeg1 ? 1152 : 576;
+            int frameSize = samplesPerFrame / 8 * bitrate / sampleRate + padding;
 
             if (frameSize < 4) {
                 i++;
                 continue;
             }
 
-            totalSeconds += 1152.0 / sampleRate;
+            totalSeconds += (double)samplesPerFrame / sampleRate;
             frameCount++;
             i += frameSize;
         }

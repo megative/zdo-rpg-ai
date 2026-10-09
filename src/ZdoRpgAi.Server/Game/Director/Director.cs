@@ -22,6 +22,8 @@ public class Director {
     private bool _processing;
     private int _playerInterruptionIteration = 0;
 
+    private int PlayerInterruptionIteration => Volatile.Read(ref _playerInterruptionIteration);
+
     public Director(Story.Story story, DirectorHelper directorHelper, NpcSpeechGenerator npcSpeechGenerator, IRpcChannel rpc, ILlm mainLlm, ILlm simpleLlm, NpcRepository npcRepo) {
         _story = story;
         _directorHelper = directorHelper;
@@ -34,6 +36,11 @@ public class Director {
 
     private void OnStoryEventRegistered(StoryEvent evt) {
         Log.Debug("OnStoryEventRegistered");
+
+        if (evt is StoryEvent.PlayerSpeak) {
+            // The player said something new: an NPC line still being voiced or played back is stale
+            Interlocked.Increment(ref _playerInterruptionIteration);
+        }
 
         lock (_bufferLock) {
             _buffer.Add(evt);
@@ -123,10 +130,10 @@ public class Director {
         if (npcSpeakEvent != null) {
             var npc = await _npcRepo.GetNpcInfoAsync(npcSpeakEvent.NpcCharacterId);
             if (npc != null) {
-                var iterationBeforeGeneration = _playerInterruptionIteration;
+                var iterationBeforeGeneration = PlayerInterruptionIteration;
                 Log.Trace("Generating speech for NPC {NpcId}", npcSpeakEvent.NpcCharacterId);
                 var mp3 = await _npcSpeechGenerator.GenerateAsync(npc, npcSpeakEvent.Text);
-                if (_playerInterruptionIteration == iterationBeforeGeneration && mp3 != null) {
+                if (PlayerInterruptionIteration == iterationBeforeGeneration && mp3 != null) {
                     Log.Trace("Publishing MP3 for NPC {NpcId}", npcSpeakEvent.NpcCharacterId);
                     _directorHelper.PublishNpcSpeaksMp3(npcSpeakEvent.NpcCharacterId, npcSpeakEvent.Text, mp3);
 
@@ -136,7 +143,7 @@ public class Director {
                         await WaitUnlessInterruptedAsync(durationMs, iterationBeforeGeneration);
                     }
                 }
-                else if (_playerInterruptionIteration != iterationBeforeGeneration) {
+                else if (PlayerInterruptionIteration != iterationBeforeGeneration) {
                     Log.Trace("Speech generation interrupted by player for NPC {NpcId}", npcSpeakEvent.NpcCharacterId);
                 }
             }
@@ -150,7 +157,7 @@ public class Director {
         const int pollIntervalMs = 100;
         var remaining = durationMs;
         while (remaining > 0) {
-            if (_playerInterruptionIteration != expectedIteration) {
+            if (PlayerInterruptionIteration != expectedIteration) {
                 Log.Debug("Speech playback wait interrupted by player");
                 return;
             }
