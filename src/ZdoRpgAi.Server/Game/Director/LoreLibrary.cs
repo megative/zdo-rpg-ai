@@ -14,12 +14,15 @@ public partial class LoreLibrary {
     private const int MaxTopics = 3;
     private const int LinesPerTopic = 3;
     private const int MinStemLength = 4;
-    private const int TopicListTimeoutMs = 15000;
+    private const int TopicListTimeoutMs = 10000;
+    private static readonly TimeSpan RetryTopicListAfter = TimeSpan.FromMinutes(10);
 
     private readonly IRpcChannel _rpc;
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     // Topic ids with their words, loaded once from the mod
     private List<(string Id, string[] Words)>? _topics;
+    // After a failed load, replies go on without lore for a while instead of waiting each time
+    private DateTime _retryTopicsAt = DateTime.MinValue;
 
     public LoreLibrary(IRpcChannel rpc) {
         _rpc = rpc;
@@ -53,12 +56,17 @@ public partial class LoreLibrary {
             return _topics;
         }
 
+        if (DateTime.UtcNow < _retryTopicsAt) {
+            return [];
+        }
+
         await _loadLock.WaitAsync();
         try {
-            if (_topics == null) {
+            if (_topics == null && DateTime.UtcNow >= _retryTopicsAt) {
+                // Pessimistic until the list arrives, so a failure isn't retried on every reply
+                _retryTopicsAt = DateTime.UtcNow + RetryTopicListAfter;
                 var response = await _rpc.CallAsync(nameof(ServerToModMessageType.GetTopics), null, TopicListTimeoutMs);
                 var ids = response.Json?.DeserializeSafe(PayloadJsonContext.Default.GetTopicsResponsePayload)?.Topics ?? [];
-                // An empty list most likely means the mod doesn't support it yet: ask again next time
                 if (ids.Length > 0) {
                     _topics = ids.Select(id => (id, Words(id))).Where(t => t.Item2.Length > 0).ToList();
                     Log.Info("Loaded {Count} dialogue topics", _topics.Count);

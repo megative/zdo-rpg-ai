@@ -15,6 +15,10 @@ public class OpenmwModChannel : IChannel {
     private static readonly ILog Log = Logger.Get<OpenmwModChannel>();
 
     private const string MsgPrefix = "[ZDORPG_MSG]";
+    // OpenMW's logger cuts lines at 4 KB and loses a byte there, so the mod sends longer messages
+    // as numbered parts: [ZDORPG_PART]<id>/<index>/<count>:<chunk of the JSON>
+    private const string PartPrefix = "[ZDORPG_PART]";
+    private const int MaxPendingParts = 16;
     private const string AckPrefix = "[ZDORPG_ACK]";
 
     private readonly string _outFilePath;
@@ -29,6 +33,7 @@ public class OpenmwModChannel : IChannel {
 
     // Incoming state (log tailing)
     private long _logPosition;
+    private readonly Dictionary<int, string?[]> _messageParts = new();
 
     public event Action<Message>? MessageReceived;
     public event Action? Disconnected;
@@ -234,6 +239,12 @@ public class OpenmwModChannel : IChannel {
                 continue;
             }
 
+            var partIdx = line.IndexOf(PartPrefix, StringComparison.Ordinal);
+            if (partIdx >= 0) {
+                ProcessModMessagePart(line[(partIdx + PartPrefix.Length)..]);
+                continue;
+            }
+
             var ackIdx = line.IndexOf(AckPrefix, StringComparison.Ordinal);
             if (ackIdx >= 0) {
                 var idStr = line[(ackIdx + AckPrefix.Length)..].Trim();
@@ -273,6 +284,34 @@ public class OpenmwModChannel : IChannel {
         var msg = Message.FromJson(obj);
         Log.Trace("RECV {Type}: {Json}", msg.Type, jsonStr);
         MessageReceived?.Invoke(msg);
+    }
+
+    private void ProcessModMessagePart(string part) {
+        // The Windows build of OpenMW ends log lines with \r\n; a stray \r inside JSON would break it
+        part = part.TrimEnd('\r');
+        var colon = part.IndexOf(':');
+        var header = colon > 0 ? part[..colon].Split('/') : [];
+        if (header.Length != 3 || !int.TryParse(header[0], out var id) || !int.TryParse(header[1], out var index)
+            || !int.TryParse(header[2], out var count) || index < 1 || index > count) {
+            Log.Warn("Malformed mod message part: {Part}", part.Length > 80 ? part[..80] : part);
+            return;
+        }
+
+        // A first part starts over: ids restart along with the mod
+        if (index == 1 || !_messageParts.TryGetValue(id, out var parts) || parts.Length != count) {
+            if (_messageParts.Count >= MaxPendingParts) {
+                Log.Warn("Dropping {Count} incomplete mod messages", _messageParts.Count);
+                _messageParts.Clear();
+            }
+            parts = new string?[count];
+            _messageParts[id] = parts;
+        }
+
+        parts[index - 1] = part[(colon + 1)..];
+        if (parts.All(p => p != null)) {
+            _messageParts.Remove(id);
+            ProcessModMessage(string.Concat(parts));
+        }
     }
 
     private void ProcessModAck(int ackedId) {

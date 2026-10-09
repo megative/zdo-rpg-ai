@@ -12,6 +12,8 @@ namespace ZdoRpgAi.Server.Game.Director;
 public class SimpleReactiveStrategy : IDirectorStrategy {
     private static readonly ILog Log = Logger.Get<SimpleReactiveStrategy>();
 
+    private const int LoreWaitMs = 2500;
+
     private readonly ILlm _mainLlm;
     private readonly ILlm _simpleLlm;
     private readonly IStory _story;
@@ -90,7 +92,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 npcInfo = npcInfo with { Personality = personality };
             }
             var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName);
-            var lore = await loreTask;
+            // Lore is a bonus: the reply doesn't wait long for it (the topic list loads in the background)
+            var lore = await Task.WhenAny(loreTask, Task.Delay(LoreWaitMs)) == loreTask ? loreTask.Result : [];
             var response = await GenerateNpcResponseAsync(npcInfo, scene, rumors, lore, history, summaries);
             var text = response.Text?.Trim();
             var calls = response.ToolCalls ?? [];
