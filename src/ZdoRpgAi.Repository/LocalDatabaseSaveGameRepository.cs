@@ -118,6 +118,39 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
+    public List<RawStoryEvent> GetRecentEvents(string type, string? excludeCharacterId, int limit) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT se.id, se.gameTime, se.realTime, se.type, se.dataJson
+                FROM story_event se
+                WHERE se.type = $type
+                  AND ($exclude IS NULL OR (
+                    COALESCE(json_extract(se.dataJson, '$.npcCharacterId'), '') != $exclude
+                    AND NOT EXISTS (
+                      SELECT 1 FROM story_event_observer seo
+                      WHERE seo.storyEventId = se.id AND seo.characterId = $exclude)))
+                ORDER BY se.id DESC
+                LIMIT $limit
+                """;
+            cmd.Parameters.AddWithValue("$type", type);
+            cmd.Parameters.AddWithValue("$exclude", (object?)excludeCharacterId ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$limit", limit);
+
+            var results = new List<RawStoryEvent>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                results.Add(new RawStoryEvent(
+                    reader.GetInt64(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4)));
+            }
+            return results;
+        }
+    }
+
     public List<RawStoryEventSummary> GetActiveSummariesForCharacter(string characterId) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();

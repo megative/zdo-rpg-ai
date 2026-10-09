@@ -6,6 +6,9 @@ public interface ISaveGameRepository : IDisposable {
     long AddStoryEvent(string gameTime, string realTime, string type, string dataJson);
     void AddStoryEventObservers(long storyEventId, string[] characterIds);
     List<RawStoryEvent> GetActiveStoryEventsForCharacter(string characterId);
+    // Latest events of a type, newest first, archived ones included. excludeCharacterId skips events
+    // that character performed or witnessed.
+    List<RawStoryEvent> GetRecentEvents(string type, string? excludeCharacterId, int limit);
     List<RawStoryEventSummary> GetActiveSummariesForCharacter(string characterId);
     long AddStoryEventSummary(string summary, string realTime, string[] characterIds);
     void ArchiveStoryEvents(long[] eventIds, long summaryId);

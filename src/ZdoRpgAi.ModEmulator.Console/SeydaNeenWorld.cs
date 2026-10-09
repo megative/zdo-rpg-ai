@@ -97,7 +97,9 @@ public static class SeydaNeenWorld {
     public static GetPlayerInfoResponsePayload PlayerInfo =>
         new(PlayerId, "Player", "Dark Elf", "Male");
 
+    // Same default hearing range as the mod: 2000 game units
     public static NearbyCharacterInfo[] GetCharactersWhoHear(string speakerId, float? maxDistance) {
+        maxDistance ??= 2000f / 70f;
         var speaker = FindNpc(speakerId);
         float sx = speaker?.X ?? 0f;
         float sy = speaker?.Y ?? 0f;

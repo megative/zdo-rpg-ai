@@ -20,6 +20,14 @@ public class StoryComposer {
     private DateTime _lastPlayerActivity = DateTime.MinValue;
     private readonly Dictionary<string, DateTime> _lastInteraction = new();
 
+    public DateTime LastPlayerActivity {
+        get {
+            lock (_lock) {
+                return _lastPlayerActivity;
+            }
+        }
+    }
+
     public StoryComposer(Story story, DirectorHelper directorHelper, ISaveGameRepository saveGameRepo, DirectorSection config) {
         _story = story;
         _directorHelper = directorHelper;
@@ -69,6 +77,7 @@ public class StoryComposer {
                 TargetCharacterId = targetCharacterId,
                 // The client can't see the game clock, the mod reports it along with the observers
                 GameTime = observers.GameTime ?? gameTime,
+                Cell = observers.Cell,
                 Text = text,
             });
             _story.RegisterEvent(evt, observers.Ids);
@@ -97,6 +106,7 @@ public class StoryComposer {
                 PlayerCharacterId = playerId,
                 NpcCharacterId = npcId,
                 GameTime = observers.GameTime ?? "0",
+                Cell = observers.Cell,
             });
             _story.RegisterEvent(evt, observers.Ids);
         }

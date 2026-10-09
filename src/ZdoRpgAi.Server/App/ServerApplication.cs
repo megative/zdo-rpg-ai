@@ -40,7 +40,16 @@ public class ServerApplication : IDisposable {
 
     public async Task RunAsync(CancellationToken ct) {
         Log.Info("Server started");
-        await _httpServer.StartAsync(ct);
+        // The HTTP host stops on its own on SIGTERM, so background game loops follow it, not just ct
+        using var gameCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var game = _game.RunAsync(gameCts.Token);
+        try {
+            await _httpServer.StartAsync(ct);
+        }
+        finally {
+            gameCts.Cancel();
+            await game;
+        }
         Log.Info("Server stopped");
     }
 

@@ -63,7 +63,7 @@ public class NpcActions {
 
     // Runs the tool calls in order. Each becomes a story event, so the NPC remembers what it did
     // and whether the game let it happen.
-    public async Task<List<StoryEvent>> ExecuteAsync(string npcId, string playerId, string gameTime, IReadOnlyList<LlmToolCall> calls) {
+    public async Task<List<StoryEvent>> ExecuteAsync(string npcId, string playerId, string gameTime, string? cell, IReadOnlyList<LlmToolCall> calls) {
         var events = new List<StoryEvent>();
         foreach (var call in calls) {
             var (description, result) = await ExecuteAsync(npcId, playerId, call);
@@ -72,6 +72,7 @@ public class NpcActions {
             events.Add(StoryEvent.Create(new StoryEvent.NpcAction {
                 NpcCharacterId = npcId,
                 GameTime = gameTime,
+                Cell = cell,
                 Description = description,
                 Error = error,
             }));

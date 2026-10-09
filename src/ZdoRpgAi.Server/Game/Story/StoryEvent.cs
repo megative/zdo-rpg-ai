@@ -11,6 +11,8 @@ public abstract record StoryEvent {
     public long Id { get; init; } = -1;
     public required string GameTime { get; init; }
     public string RealTime { get; init; } = "";
+    // Cell where it happened, null for events recorded before cells were tracked
+    public string? Cell { get; init; }
 
     public static T Create<T>(T evt) where T : StoryEvent =>
         evt with { RealTime = GetRealTime() };

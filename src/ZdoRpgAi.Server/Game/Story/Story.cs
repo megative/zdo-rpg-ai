@@ -108,7 +108,7 @@ public class Story : IStory {
         return ids.ToArray();
     }
 
-    private static StoryEvent? DeserializeEvent(RawStoryEvent raw) {
+    internal static StoryEvent? DeserializeEvent(RawStoryEvent raw) {
         try {
             var evt = JsonSerializer.Deserialize(raw.DataJson, StoryEventJsonContext.Default.StoryEvent);
             return evt is null ? null : evt with { Id = raw.Id };

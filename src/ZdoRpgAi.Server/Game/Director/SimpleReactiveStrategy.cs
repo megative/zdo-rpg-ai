@@ -20,10 +20,11 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private readonly DirectorSection _config;
     private readonly NpcActions _actions;
     private readonly NpcPersonalityWriter _personalityWriter;
+    private readonly RumorMill _rumors;
 
     public SimpleReactiveStrategy(
         ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
-        DirectorHelper directorHelper, DirectorSection config) {
+        DirectorHelper directorHelper, DirectorSection config, RumorMill rumors) {
         _mainLlm = mainLlm;
         _simpleLlm = simpleLlm;
         _story = story;
@@ -33,6 +34,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _config = config;
         _actions = new NpcActions(rpc);
         _personalityWriter = new NpcPersonalityWriter(simpleLlm);
+        _rumors = rumors;
     }
 
     public async Task<List<StoryEvent>> ProcessStoryEventsAsync(List<StoryEvent> events) {
@@ -79,7 +81,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 _npcRepo.SavePersonality(npcInfo, personality);
                 npcInfo = npcInfo with { Personality = personality };
             }
-            var response = await GenerateNpcResponseAsync(npcInfo, scene, history, summaries);
+            var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName);
+            var response = await GenerateNpcResponseAsync(npcInfo, scene, rumors, history, summaries);
             var text = response.Text?.Trim();
             var calls = response.ToolCalls ?? [];
             if (string.IsNullOrEmpty(text) && calls.Count == 0) {
@@ -95,11 +98,12 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                     NpcCharacterId = npcId,
                     TargetCharacterId = playerId,
                     GameTime = eventTime,
+                    Cell = scene?.CellName,
                     Text = text,
                 }));
             }
             if (calls.Count > 0 && playerId != null) {
-                newEvents.AddRange(await _actions.ExecuteAsync(npcId, playerId, eventTime, calls));
+                newEvents.AddRange(await _actions.ExecuteAsync(npcId, playerId, eventTime, scene?.CellName, calls));
             }
             return newEvents;
         }
@@ -214,14 +218,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     }
 
     private async Task<LlmResponse> GenerateNpcResponseAsync(
-        NpcInfo npc, GetSceneContextResponsePayload? scene,
+        NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors,
         List<StoryEvent> history, List<StoryEventSummary> summaries) {
         Log.Trace("Generating response for NPC {NpcName} with {HistoryCount} history events and {SummaryCount} summaries",
             npc.Name, history.Count, summaries.Count);
 
         var names = await ResolveNamesAsync(npc, history);
         var contextBlock = BuildContextBlock(summaries, history, names);
-        var systemPrompt = BuildSystemPrompt(npc, scene);
+        var systemPrompt = BuildSystemPrompt(npc, scene, rumors);
 
         var messages = new List<LlmMessage>();
 
@@ -256,7 +260,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return response;
     }
 
-    private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene) {
+    private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors) {
         var lines = new List<string> { $"You are {npc.Name}, {DescribeNpc(npc, scene?.Npc)}, living in Morrowind." };
         if (!string.IsNullOrEmpty(npc.Personality)) {
             lines.Add(npc.Personality);
@@ -286,6 +290,11 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 var items = self.Items.Select(i => i.Count > 1 ? $"{i.Name} x{i.Count} (id {i.Id})" : $"{i.Name} (id {i.Id})");
                 lines.Add($"You also carry: {string.Join(", ", items)}.");
             }
+        }
+
+        if (rumors.Count > 0) {
+            lines.Add($"Rumors you've heard around {RumorMill.TownOf(scene?.CellName)}:");
+            lines.AddRange(rumors.Select(r => $"- {r}"));
         }
 
         var playerLines = new List<string>();
@@ -330,7 +339,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     }
 
     // "a male Dark Elf, Guard, Knight of the Imperial Legion, level 12"
-    private static string DescribeNpc(NpcInfo npc, SceneNpcState? state) {
+    internal static string DescribeNpc(NpcInfo npc, SceneNpcState? state) {
         var parts = new List<string> { $"a {npc.Sex.ToLowerInvariant()} {npc.Race}" };
         if (!string.IsNullOrEmpty(npc.ClassName)) {
             parts.Add(npc.ClassName);

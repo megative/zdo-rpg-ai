@@ -25,13 +25,13 @@ public class Director {
 
     private int PlayerInterruptionIteration => Volatile.Read(ref _playerInterruptionIteration);
 
-    public Director(Story.Story story, DirectorHelper directorHelper, NpcSpeechGenerator npcSpeechGenerator, IRpcChannel rpc, ILlm mainLlm, ILlm simpleLlm, NpcRepository npcRepo, DirectorSection config) {
+    public Director(Story.Story story, DirectorHelper directorHelper, NpcSpeechGenerator npcSpeechGenerator, IRpcChannel rpc, ILlm mainLlm, ILlm simpleLlm, NpcRepository npcRepo, DirectorSection config, RumorMill rumors) {
         _story = story;
         _directorHelper = directorHelper;
         _npcSpeechGenerator = npcSpeechGenerator;
         _rpc = rpc;
         _npcRepo = npcRepo;
-        _simpleReactive = new SimpleReactiveStrategy(mainLlm, simpleLlm, story, npcRepo, rpc, directorHelper, config);
+        _simpleReactive = new SimpleReactiveStrategy(mainLlm, simpleLlm, story, npcRepo, rpc, directorHelper, config, rumors);
         story.EventRegistered += OnStoryEventRegistered;
     }
 
@@ -55,6 +55,25 @@ public class Director {
 
         Log.Trace("Starting drain for event {EventType}", evt.GetType().Name);
         _ = DrainBufferAsync();
+    }
+
+    // Runs work that produces NPC speech on its own, like ambient banter, but only when nothing else
+    // is being processed. Player events arriving meanwhile are buffered and handled right after.
+    public async Task<bool> TryRunExclusiveAsync(Func<Task<List<StoryEvent>>> produce) {
+        lock (_bufferLock) {
+            if (_processing) {
+                return false;
+            }
+            _processing = true;
+        }
+
+        try {
+            await RegisterAndPublishAsync(await produce());
+        }
+        finally {
+            await DrainBufferAsync();
+        }
+        return true;
     }
 
     private async Task DrainBufferAsync() {

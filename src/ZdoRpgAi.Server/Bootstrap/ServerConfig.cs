@@ -28,6 +28,10 @@ public class DirectorSection {
     // NPCs that remember the player greet them first, at most once per cooldown per NPC
     public bool Greetings { get; set; } = true;
     public double GreetingCooldownMinutes { get; set; } = 10;
+    // Every interval, with this chance, two NPCs near a quiet player chat with each other
+    public bool Banter { get; set; } = true;
+    public double BanterIntervalSeconds { get; set; } = 180;
+    public double BanterChance { get; set; } = 0.5;
 }
 
 public class DatabaseSection {
