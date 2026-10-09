@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using ZdoRpgAi.Client.App;
 using ZdoRpgAi.Client.Channel;
 using ZdoRpgAi.Client.Hotkey;
@@ -47,12 +48,23 @@ public static class ClientBootstrap {
         VoiceCaptureService? voiceCapture = null;
         if (config.VoiceCapture is { Enabled: true } vc) {
             var mic = new PortAudioMicrophoneListener(vc.SampleRate, vc.FrameSizeSamples, vc.DeviceIndex);
-            var hotkey = new MacosHotkeyListener(vc.PttKey);
+            var hotkey = CreateHotkeyListener(vc.PttKey);
             voiceCapture = new VoiceCaptureService(vc, mic, hotkey);
         }
 
         var bridge = new ClientChannelBridge(server, modRpc);
         return new ClientApplication(bridge, mp3, voiceCapture, config.StripDiacritics);
+    }
+
+    private static IHotkeyListener CreateHotkeyListener(string pttKey) {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) {
+            return new LinuxHotkeyListener(pttKey);
+        }
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) {
+            return new MacosHotkeyListener(pttKey);
+        }
+        throw new PlatformNotSupportedException(
+            $"No push-to-talk hotkey listener for this OS ({RuntimeInformation.OSDescription})");
     }
 
     private static string ExpandPath(string path, string baseDir) {
