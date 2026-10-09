@@ -50,6 +50,9 @@ public class ClaudeLlm : ILlm {
         }
         if (request.Tools.Count > 0) {
             body["tools"] = BuildTools(request.Tools, cacheLast: string.IsNullOrEmpty(request.SystemPromptPrefix));
+            if (!request.AllowToolCalls) {
+                body["tool_choice"] = new JsonObject { ["type"] = "none" };
+            }
         }
         if (_serverFallback) {
             body["fallbacks"] = "default";
@@ -109,32 +112,36 @@ public class ClaudeLlm : ILlm {
     private static JsonArray BuildMessages(List<LlmMessage> messages) {
         var result = new JsonArray();
         foreach (var msg in messages) {
-            var content = new JsonArray();
-            if (!string.IsNullOrEmpty(msg.Text)) {
-                content.AddNode(TextBlock(msg.Text));
-            }
-            foreach (var call in msg.ToolCalls ?? []) {
-                content.AddNode(new JsonObject {
-                    ["type"] = "tool_use",
-                    ["id"] = call.Id,
-                    ["name"] = call.Name,
-                    ["input"] = call.Arguments.DeepClone(),
-                });
-            }
-            foreach (var toolResult in msg.ToolResults ?? []) {
-                content.AddNode(new JsonObject {
-                    ["type"] = "tool_result",
-                    ["tool_use_id"] = toolResult.CallId,
-                    ["content"] = toolResult.Result,
-                });
-            }
-
             result.AddNode(new JsonObject {
                 ["role"] = msg.Role == LlmRole.User ? "user" : "assistant",
-                ["content"] = content,
+                // A turn continued after its tool calls goes back unchanged, thinking signatures and all
+                ["content"] = msg.ProviderContent is JsonArray original ? original.DeepClone() : BuildContent(msg),
             });
         }
         return result;
+    }
+
+    private static JsonArray BuildContent(LlmMessage msg) {
+        var content = new JsonArray();
+        if (!string.IsNullOrEmpty(msg.Text)) {
+            content.AddNode(TextBlock(msg.Text));
+        }
+        foreach (var call in msg.ToolCalls ?? []) {
+            content.AddNode(new JsonObject {
+                ["type"] = "tool_use",
+                ["id"] = call.Id,
+                ["name"] = call.Name,
+                ["input"] = call.Arguments.DeepClone(),
+            });
+        }
+        foreach (var toolResult in msg.ToolResults ?? []) {
+            content.AddNode(new JsonObject {
+                ["type"] = "tool_result",
+                ["tool_use_id"] = toolResult.CallId,
+                ["content"] = toolResult.Result,
+            });
+        }
+        return content;
     }
 
     private static JsonArray BuildTools(List<LlmTool> tools, bool cacheLast) {
@@ -193,7 +200,8 @@ public class ClaudeLlm : ILlm {
 
         string? text = null;
         var toolCalls = new List<LlmToolCall>();
-        foreach (var block in doc?["content"]?.AsArray() ?? []) {
+        var content = doc?["content"] as JsonArray;
+        foreach (var block in content ?? []) {
             switch (block?["type"]?.GetValue<string>()) {
                 case "text":
                     text = (text ?? "") + block["text"]?.GetValue<string>();
@@ -208,7 +216,11 @@ public class ClaudeLlm : ILlm {
             }
         }
 
-        return new LlmResponse { Text = text, ToolCalls = toolCalls.Count > 0 ? toolCalls : null };
+        return new LlmResponse {
+            Text = text,
+            ToolCalls = toolCalls.Count > 0 ? toolCalls : null,
+            ProviderContent = content?.DeepClone(),
+        };
     }
 
     private static JsonObject TextBlock(string text, bool cache = false) {

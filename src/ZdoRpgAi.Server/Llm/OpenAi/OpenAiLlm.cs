@@ -31,6 +31,9 @@ public class OpenAiLlm : ILlm {
 
         if (request.Tools.Count > 0) {
             body["tools"] = BuildTools(request.Tools);
+            if (!request.AllowToolCalls) {
+                body["tool_choice"] = "none";
+            }
         }
 
         var json = ToJson(body);

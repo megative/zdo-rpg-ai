@@ -91,8 +91,8 @@ public class NpcActions {
 
     // Runs the tool calls in order. Each becomes a story event, so the NPC remembers what it did
     // and whether the game let it happen.
-    public async Task<List<StoryEvent>> ExecuteAsync(string npcId, string playerId, string gameTime, string? cell, IReadOnlyList<LlmToolCall> calls) {
-        var events = new List<StoryEvent>();
+    public async Task<List<StoryEvent.NpcAction>> ExecuteAsync(string npcId, string playerId, string gameTime, string? cell, IReadOnlyList<LlmToolCall> calls) {
+        var events = new List<StoryEvent.NpcAction>();
         var anyFailed = false;
         foreach (var call in calls) {
             // Completing a task right after, say, take_item failed would reward work not done

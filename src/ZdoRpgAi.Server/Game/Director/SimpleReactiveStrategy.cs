@@ -94,7 +94,9 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName);
             // Lore is a bonus: the reply doesn't wait long for it (the topic list loads in the background)
             var lore = await Task.WhenAny(loreTask, Task.Delay(LoreWaitMs)) == loreTask ? loreTask.Result : [];
-            var response = await GenerateNpcResponseAsync(npcInfo, scene, rumors, lore, history, summaries);
+            var request = await BuildNpcRequestAsync(npcInfo, scene, rumors, lore, history, summaries);
+            var response = await _mainLlm.ChatAsync(request);
+            Log.Trace("Main LLM response: {Length} chars, {ToolCount} tool calls", response.Text?.Length ?? 0, response.ToolCalls?.Count ?? 0);
             var text = response.Text?.Trim();
             var calls = response.ToolCalls ?? [];
             if (string.IsNullOrEmpty(text) && calls.Count == 0) {
@@ -103,6 +105,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             }
 
             var eventTime = scene?.GameTime ?? gameTime!;
+            var actions = calls.Count > 0 && playerId != null
+                ? await _actions.ExecuteAsync(npcId, playerId, eventTime, scene?.CellName, calls)
+                : [];
+            if (string.IsNullOrEmpty(text) && actions.Count > 0) {
+                // The model acted without a word, waiting to hear how it went: tell it, so the NPC speaks
+                text = (await SpeakAfterActionsAsync(request, response, actions))?.Trim();
+            }
+
             var newEvents = new List<StoryEvent>();
             if (!string.IsNullOrEmpty(text)) {
                 Log.Trace("Generated response for NPC {NpcId}: {ResponseLength} chars", npcId, text.Length);
@@ -114,9 +124,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                     Text = text,
                 }));
             }
-            if (calls.Count > 0 && playerId != null) {
-                newEvents.AddRange(await _actions.ExecuteAsync(npcId, playerId, eventTime, scene?.CellName, calls));
-            }
+            newEvents.AddRange(actions);
             return newEvents;
         }
         catch (Exception ex) {
@@ -229,7 +237,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return nearby[0].CharacterId;
     }
 
-    private async Task<LlmResponse> GenerateNpcResponseAsync(
+    private async Task<LlmRequest> BuildNpcRequestAsync(
         NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors, List<TopicLines> lore,
         List<StoryEvent> history, List<StoryEventSummary> summaries) {
         Log.Trace("Generating response for NPC {NpcName} with {HistoryCount} history events and {SummaryCount} summaries",
@@ -268,9 +276,35 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
 
         Log.Trace("System prompt for {NpcId}:\n{SystemPrompt}", npc.Id, systemPrompt);
         Log.Trace("Calling main LLM with {MessageCount} messages", messages.Count);
-        var response = await _mainLlm.ChatAsync(request);
-        Log.Trace("Main LLM response: {Length} chars, {ToolCount} tool calls", response.Text?.Length ?? 0, response.ToolCalls?.Count ?? 0);
-        return response;
+        return request;
+    }
+
+    // Continues the conversation with the outcome of the actions and asks for words only. The
+    // request is the first one plus two messages, so the cached prompt still applies.
+    private async Task<string?> SpeakAfterActionsAsync(LlmRequest request, LlmResponse response, List<StoryEvent.NpcAction> actions) {
+        var calls = response.ToolCalls!;
+        var results = calls.Zip(actions, (call, action) => new LlmToolResult {
+            CallId = call.Id,
+            Name = call.Name,
+            Result = action.Error == null ? "Done." : $"Failed: {action.Error}.",
+        }).ToList();
+
+        Log.Debug("NPC acted without words, asking for them after {Count} actions", results.Count);
+        var followUp = await _mainLlm.ChatAsync(new LlmRequest {
+            SystemPromptPrefix = request.SystemPromptPrefix,
+            SystemPrompt = request.SystemPrompt,
+            Messages = [
+                .. request.Messages,
+                new LlmMessage { Role = LlmRole.Model, Text = response.Text, ToolCalls = calls, ProviderContent = response.ProviderContent },
+                new LlmMessage { Role = LlmRole.User, ToolResults = results },
+            ],
+            Tools = request.Tools,
+            AllowToolCalls = false,
+        });
+        if (string.IsNullOrWhiteSpace(followUp.Text)) {
+            Log.Warn("NPC stays silent: no words after its actions either");
+        }
+        return followUp.Text;
     }
 
     private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors, List<TopicLines> lore) {
@@ -366,7 +400,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         "You will be told what the people around you say and do. Reply only with your own speech: no narration, no name prefix, no stage directions.",
         "Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.",
         "When the player walks up to you, greet them in one short line that fits what you remember of them.",
-        "Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.",
+        "Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough, and a tool call is no answer: always say your words too.",
         "Quest orders, quest items and faction matters belong to the game's own dialogue: when the player needs them, say a few words and call open_dialogue. Never hand out quest items or pretend a quest step happened.",
         "You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.",
         $"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.",

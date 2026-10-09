@@ -9,6 +9,9 @@ public class LlmMessage {
     public string? Text { get; init; }
     public List<LlmToolCall>? ToolCalls { get; init; }
     public List<LlmToolResult>? ToolResults { get; init; }
+    // LlmResponse.ProviderContent of a model turn; the provider that made it sends it back as is
+    // instead of rebuilding the turn from Text and ToolCalls
+    public JsonNode? ProviderContent { get; init; }
 }
 
 public class LlmToolCall {

@@ -35,6 +35,11 @@ public class GeminiLlm : ILlm {
 
         if (request.Tools.Count > 0) {
             body["tools"] = BuildTools(request.Tools);
+            if (!request.AllowToolCalls) {
+                body["toolConfig"] = new JsonObject {
+                    ["functionCallingConfig"] = new JsonObject { ["mode"] = "NONE" }
+                };
+            }
         }
 
         body["generationConfig"] = new JsonObject {
@@ -90,6 +95,13 @@ public class GeminiLlm : ILlm {
     private static JsonArray BuildContents(List<LlmMessage> messages) {
         var contents = new JsonArray();
         foreach (var msg in messages) {
+            var role = msg.Role == LlmRole.User ? "user" : "model";
+            // Function calls carry thought signatures that must come back with them
+            if (msg.ProviderContent is JsonArray original) {
+                contents.AddNode(new JsonObject { ["role"] = role, ["parts"] = original.DeepClone() });
+                continue;
+            }
+
             var parts = new JsonArray();
 
             if (msg.Text != null) {
@@ -115,7 +127,6 @@ public class GeminiLlm : ILlm {
                 }
             }
 
-            var role = msg.Role == LlmRole.User ? "user" : "model";
             contents.AddNode(new JsonObject { ["role"] = role, ["parts"] = parts });
         }
         return contents;
@@ -207,6 +218,7 @@ public class GeminiLlm : ILlm {
         return new LlmResponse {
             Text = text,
             ToolCalls = toolCalls.Count > 0 ? toolCalls : null,
+            ProviderContent = parts.DeepClone(),
         };
     }
 }
