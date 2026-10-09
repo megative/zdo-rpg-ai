@@ -8,3 +8,5 @@ obj/
 config.json
 BuildInfo.g.cs
 .tmp/
+# MkDocs build output
+website/site/

@@ -1,0 +1,37 @@
+{% extends "main.html" %}
+
+{#- The landing page: a hero from the page's front matter, then the page content without a title -#}
+
+{% block tabs %}
+  {{ super() }}
+  {% set hero = page.meta.hero %}
+  {% if hero %}
+    <section class="zdo-hero">
+      <div class="md-grid zdo-hero__inner">
+        <div>
+          <p class="zdo-kicker">{{ hero.kicker }}</p>
+          <h1 class="zdo-hero__title">{{ hero.title }}<br><span class="zdo-hero__accent">{{ hero.title_accent }}</span></h1>
+          <p class="zdo-hero__lead">{{ hero.lead }}</p>
+          <div class="zdo-hero__actions">
+            <a href="{{ hero.primary_link }}" class="md-button md-button--primary">{{ hero.primary }}</a>
+            <a href="{{ config.repo_url }}" class="md-button">{{ hero.secondary }}</a>
+          </div>
+          <p class="zdo-hero__note">{{ hero.note }}</p>
+        </div>
+        <figure class="zdo-shot">
+          <img src="{{ base_url }}/assets/seyda-neen.jpg" alt="{{ hero.image_alt }}" width="498" height="603">
+          <span class="zdo-shot__chip zdo-shot__chip--top">{{ hero.chip_top }}</span>
+          <span class="zdo-shot__chip zdo-shot__chip--bottom"><kbd>Y</kbd>{{ hero.chip_bottom }}</span>
+        </figure>
+      </div>
+      <svg class="zdo-hero__mountains" viewBox="0 0 1440 100" preserveAspectRatio="none" aria-hidden="true">
+        <path class="far" d="M0 100V62c120-8 210-30 330-28 110 2 170 20 270 8 120-14 190-52 300-50 90 2 140 30 230 34 130 6 200-22 310-12v86z"/>
+        <path class="near" d="M0 100V84c160-4 260-18 380-16 140 3 210 14 330 2 70-7 110-36 160-58 22-10 40-10 58 2 40 26 70 50 130 58 120 16 230 4 382 12v16z"/>
+      </svg>
+    </section>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  {{ page.content }}
+{% endblock %}

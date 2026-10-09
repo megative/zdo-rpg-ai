@@ -1,0 +1,110 @@
+site_name: Zdo RPG AI
+site_url: https://megative.github.io/zdo-rpg-ai/
+site_description: Talk to the people of Morrowind with your own voice. AI-driven NPC conversations for OpenMW.
+repo_url: https://github.com/megative/zdo-rpg-ai
+repo_name: megative/zdo-rpg-ai
+copyright: Zdo RPG AI is free software under the GPL-3.0. Not affiliated with Bethesda Softworks or the OpenMW team.
+
+theme:
+  name: material
+  custom_dir: overrides
+  logo: assets/logo.svg
+  favicon: assets/logo.svg
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+  palette:
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.tabs.link
+
+extra_css:
+  - assets/stylesheets/zdo.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/megative/zdo-rpg-ai
+      name: Server and client on GitHub
+    - icon: material/puzzle
+      link: https://github.com/megative/zdo-rpg-ai-openmw-mod
+      name: The OpenMW mod on GitHub
+
+nav:
+  - Home: index.md
+  - Install:
+      - install/index.md
+      - Windows: install/windows.md
+      - Linux: install/linux.md
+      - macOS: install/macos.md
+  - Configure: configuration.md
+  - Play: playing.md
+  - Troubleshooting: troubleshooting.md
+
+plugins:
+  - search
+  - i18n:
+      docs_structure: suffix
+      fallback_to_default: true
+      reconfigure_material: true
+      reconfigure_search: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+          build: true
+        - locale: ru
+          name: Русский
+          build: true
+          site_description: Говори с жителями Морровинда своим голосом. Живые NPC на ИИ для OpenMW.
+          copyright: Zdo RPG AI распространяется под лицензией GPL-3.0. Проект не связан с Bethesda Softworks и командой OpenMW.
+          nav_translations:
+            Home: Главная
+            Install: Установка
+            Configure: Настройка
+            Play: Игра
+            Troubleshooting: Если что-то не так
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg

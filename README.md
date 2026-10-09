@@ -8,6 +8,8 @@ This is evolution of https://github.com/drzdo/immersive_morrowind_llm_ai
 
 Right now this mod is primarily focused on Morrowind. But I would like to keep it extandable for other games as well.
 
+Installation, configuration and how to play, in English and Russian: https://megative.github.io/zdo-rpg-ai/
+
 # Instructions
 
 Server:
@@ -57,3 +59,14 @@ tts:
   provider: openai
   openAi: { apiKey: local, model: "<tts model>", voice: "<voice>", baseUrl: "http://localhost:8000" }
 ```
+
+# Website
+
+The site lives in `website/` and is built with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/). Preview it locally:
+
+```sh
+pip install -r website/requirements.txt
+mkdocs serve -f website/mkdocs.yml
+```
+
+Pushes to `main` that touch `website/` publish it to GitHub Pages.
