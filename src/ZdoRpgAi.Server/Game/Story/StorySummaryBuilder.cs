@@ -21,6 +21,9 @@ public class StorySummaryBuilder {
             else if (evt is StoryEvent.NpcSpeak ns) {
                 lines.Add($"[{ns.GameTime}] {ns.NpcCharacterId} says to {ns.TargetCharacterId ?? "nobody in particular"}: {ns.Text}");
             }
+            else if (evt is StoryEvent.NpcAction na) {
+                lines.Add($"[{na.GameTime}] {na.NpcCharacterId} {StoryEvent.DescribeAction(na)}");
+            }
         }
 
         var request = new LlmRequest {

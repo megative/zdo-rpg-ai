@@ -97,6 +97,9 @@ public class Story : IStory {
                     ids.Add(ns.TargetCharacterId);
                 }
             }
+            else if (evt is StoryEvent.NpcAction na) {
+                ids.Add(na.NpcCharacterId);
+            }
         }
         return ids.ToArray();
     }

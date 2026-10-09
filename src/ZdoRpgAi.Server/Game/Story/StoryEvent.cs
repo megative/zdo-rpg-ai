@@ -5,6 +5,7 @@ namespace ZdoRpgAi.Server.Game.Story;
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(PlayerSpeak), "PlayerSpeak")]
 [JsonDerivedType(typeof(NpcSpeak), "NpcSpeak")]
+[JsonDerivedType(typeof(NpcAction), "NpcAction")]
 public abstract record StoryEvent {
     public long Id { get; init; } = -1;
     public required string GameTime { get; init; }
@@ -16,6 +17,9 @@ public abstract record StoryEvent {
     internal static string GetRealTime() =>
         DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ");
 
+    public static string DescribeAction(NpcAction action) =>
+        action.Error == null ? $"[action] {action.Description}" : $"[action failed: {action.Error}] {action.Description}";
+
     public sealed record PlayerSpeak : StoryEvent {
         public required string PlayerCharacterId { get; init; }
         public string? TargetCharacterId { get; init; }
@@ -26,5 +30,12 @@ public abstract record StoryEvent {
         public required string NpcCharacterId { get; init; }
         public string? TargetCharacterId { get; init; }
         public required string Text { get; init; }
+    }
+
+    // A game action the NPC took, e.g. "gives the player 50 gold". Error is set if the game refused it.
+    public sealed record NpcAction : StoryEvent {
+        public required string NpcCharacterId { get; init; }
+        public required string Description { get; init; }
+        public string? Error { get; init; }
     }
 }

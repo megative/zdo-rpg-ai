@@ -22,6 +22,8 @@ namespace ZdoRpgAi.Protocol.Messages;
 [JsonSerializable(typeof(NpcAttackPayload))]
 [JsonSerializable(typeof(NpcStopAttackPayload))]
 [JsonSerializable(typeof(ShowMessageBoxPayload))]
+[JsonSerializable(typeof(TransferItemPayload))]
+[JsonSerializable(typeof(ActionResultPayload))]
 // Mod → Client
 [JsonSerializable(typeof(StartSessionAckPayload))]
 // Client → Mod

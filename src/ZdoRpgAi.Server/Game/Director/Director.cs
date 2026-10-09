@@ -107,6 +107,7 @@ public class Director {
             var (mainCharId, targetCharId) = e switch {
                 StoryEvent.PlayerSpeak ps => (ps.PlayerCharacterId, ps.TargetCharacterId),
                 StoryEvent.NpcSpeak ns => (ns.NpcCharacterId, ns.TargetCharacterId),
+                StoryEvent.NpcAction na => (na.NpcCharacterId, (string?)null),
                 _ => ((string?)null, (string?)null),
             };
 

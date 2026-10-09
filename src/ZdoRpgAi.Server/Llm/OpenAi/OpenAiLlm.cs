@@ -81,21 +81,12 @@ public class OpenAiLlm : ILlm {
             if (msg.ToolCalls is { Count: > 0 }) {
                 var toolCalls = new JsonArray();
                 foreach (var tc in msg.ToolCalls) {
-                    var args = new JsonObject();
-                    foreach (var kv in tc.Arguments) {
-                        if (kv.Value is JsonElement je) {
-                            args[kv.Key] = JsonNode.Parse(je.GetRawText());
-                        }
-                        else {
-                            args[kv.Key] = kv.Value != null ? JsonValue.Create(kv.Value?.ToString()) : null;
-                        }
-                    }
                     toolCalls.AddNode(new JsonObject {
                         ["id"] = tc.Id,
                         ["type"] = "function",
                         ["function"] = new JsonObject {
                             ["name"] = tc.Name,
-                            ["arguments"] = ToJson(args),
+                            ["arguments"] = ToJson(tc.Arguments),
                         },
                     });
                 }
@@ -200,20 +191,12 @@ public class OpenAiLlm : ILlm {
                 }
 
                 var fn = tc["function"]!;
-                var args = new Dictionary<string, object?>();
                 var argsStr = fn["arguments"]?.GetValue<string>();
-                if (argsStr != null) {
-                    var argsNode = JsonNode.Parse(argsStr);
-                    if (argsNode != null) {
-                        foreach (var kv in argsNode.AsObject()) {
-                            args[kv.Key] = kv.Value?.GetValue<string>();
-                        }
-                    }
-                }
+                var args = string.IsNullOrEmpty(argsStr) ? null : JsonNode.Parse(argsStr) as JsonObject;
                 toolCalls.Add(new LlmToolCall {
                     Id = tc["id"]!.GetValue<string>(),
                     Name = fn["name"]!.GetValue<string>(),
-                    Arguments = args,
+                    Arguments = args ?? new JsonObject(),
                 });
             }
         }

@@ -18,6 +18,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private readonly IRpcChannel _rpc;
     private readonly DirectorHelper _directorHelper;
     private readonly DirectorSection _config;
+    private readonly NpcActions _actions;
 
     public SimpleReactiveStrategy(
         ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
@@ -29,6 +30,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _rpc = rpc;
         _directorHelper = directorHelper;
         _config = config;
+        _actions = new NpcActions(rpc);
     }
 
     public async Task<List<StoryEvent>> ProcessStoryEventsAsync(List<StoryEvent> events) {
@@ -65,19 +67,28 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             Log.Trace("History: {HistoryCount} events, {SummaryCount} summaries", history.Count, summaries.Count);
             var scene = await sceneTask;
             var response = await GenerateNpcResponseAsync(npcInfo, scene, history, summaries);
-            if (string.IsNullOrEmpty(response)) {
+            var text = response.Text?.Trim();
+            var calls = response.ToolCalls ?? [];
+            if (string.IsNullOrEmpty(text) && calls.Count == 0) {
                 Log.Warn("LLM returned no response for NPC {NpcId}", npcId);
                 return [];
             }
 
-            Log.Trace("Generated response for NPC {NpcId}: {ResponseLength} chars", npcId, response.Length);
-            var npcSpeak = StoryEvent.Create(new StoryEvent.NpcSpeak {
-                NpcCharacterId = npcId,
-                TargetCharacterId = playerId,
-                GameTime = scene?.GameTime ?? gameTime!,
-                Text = response,
-            });
-            return [npcSpeak];
+            var eventTime = scene?.GameTime ?? gameTime!;
+            var newEvents = new List<StoryEvent>();
+            if (!string.IsNullOrEmpty(text)) {
+                Log.Trace("Generated response for NPC {NpcId}: {ResponseLength} chars", npcId, text.Length);
+                newEvents.Add(StoryEvent.Create(new StoryEvent.NpcSpeak {
+                    NpcCharacterId = npcId,
+                    TargetCharacterId = playerId,
+                    GameTime = eventTime,
+                    Text = text,
+                }));
+            }
+            if (calls.Count > 0 && playerId != null) {
+                newEvents.AddRange(await _actions.ExecuteAsync(npcId, playerId, eventTime, calls));
+            }
+            return newEvents;
         }
         catch (Exception ex) {
             Log.Error("Failed to generate NPC response: {Error}", ex.Message);
@@ -178,7 +189,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return nearby[0].CharacterId;
     }
 
-    private async Task<string?> GenerateNpcResponseAsync(
+    private async Task<LlmResponse> GenerateNpcResponseAsync(
         NpcInfo npc, GetSceneContextResponsePayload? scene,
         List<StoryEvent> history, List<StoryEventSummary> summaries) {
         Log.Trace("Generating response for NPC {NpcName} with {HistoryCount} history events and {SummaryCount} summaries",
@@ -211,13 +222,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         var request = new LlmRequest {
             SystemPrompt = systemPrompt,
             Messages = messages,
+            Tools = NpcActions.Tools,
         };
 
         Log.Trace("System prompt for {NpcId}:\n{SystemPrompt}", npc.Id, systemPrompt);
         Log.Trace("Calling main LLM with {MessageCount} messages", messages.Count);
         var response = await _mainLlm.ChatAsync(request);
-        Log.Trace("Main LLM response length: {Length}", response.Text?.Length ?? 0);
-        return response.Text?.Trim();
+        Log.Trace("Main LLM response: {Length} chars, {ToolCount} tool calls", response.Text?.Length ?? 0, response.ToolCalls?.Count ?? 0);
+        return response;
     }
 
     private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene) {
@@ -271,6 +283,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         lines.Add($"Stay in character. Speak briefly and naturally, as in a real conversation. Never mention being an AI. Always respond in the {_config.ResponseLanguage} language.");
         lines.Add("You will be told what the people around you say and do. Reply only with your own speech: no narration, no name prefix, no stage directions.");
         lines.Add("Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.");
+        lines.Add("Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.");
+        lines.Add("You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.");
         return string.Join("\n", lines);
     }
 
@@ -308,6 +322,10 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                     var info = await _npcRepo.GetNpcInfoAsync(ns.NpcCharacterId);
                     names[ns.NpcCharacterId] = info?.Name ?? ns.NpcCharacterId;
                     break;
+                case StoryEvent.NpcAction na when !names.ContainsKey(na.NpcCharacterId):
+                    var actorInfo = await _npcRepo.GetNpcInfoAsync(na.NpcCharacterId);
+                    names[na.NpcCharacterId] = actorInfo?.Name ?? na.NpcCharacterId;
+                    break;
             }
         }
         return names;
@@ -317,6 +335,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         var line = evt switch {
             StoryEvent.PlayerSpeak ps => $"{NameOf(ps.PlayerCharacterId)}: {ps.Text}",
             StoryEvent.NpcSpeak ns => $"{NameOf(ns.NpcCharacterId)}: {ns.Text}",
+            StoryEvent.NpcAction na => $"{NameOf(na.NpcCharacterId)} {StoryEvent.DescribeAction(na)}",
             _ => evt.ToString()!,
         };
         // Events recorded before the mod reported game time carry "0"

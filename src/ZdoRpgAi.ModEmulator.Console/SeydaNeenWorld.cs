@@ -31,9 +31,45 @@ public static class SeydaNeenWorld {
 
     public static GetSceneContextResponsePayload GetSceneContext(string npcId) {
         var npc = FindNpc(npcId);
-        var npcState = npc == null ? null : new SceneNpcState(npc.Level, 1f, npc.Gold, npc.Equipped ?? [], npc.Items ?? []);
+        var npcState = npc == null ? null : new SceneNpcState(npc.Level, 1f, Inventories[npc.ObjectId].GetValueOrDefault(GoldId), npc.Equipped ?? [], npc.Items ?? []);
         var player = new ScenePlayerState("Nerevar", "Dark Elf", "male", "Battlemage", 3, 0.7f, 0.9f, ["Chitin Cuirass", "Iron Longsword"]);
         return new(GameTime, CellName, npcState, player);
+    }
+
+    private const string GoldId = "gold_001";
+
+    // Item counts by character, so transfers can succeed or fail like in the game
+    private static readonly Dictionary<string, Dictionary<string, int>> Inventories = BuildInventories();
+
+    private static Dictionary<string, Dictionary<string, int>> BuildInventories() {
+        var inventories = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase) {
+            [PlayerId] = new(StringComparer.OrdinalIgnoreCase) { [GoldId] = 100 },
+        };
+        foreach (var npc in Npcs) {
+            var items = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [GoldId] = npc.Gold };
+            foreach (var item in npc.Items ?? []) {
+                items[item.Id] = item.Count;
+            }
+            inventories[npc.ObjectId] = items;
+        }
+        return inventories;
+    }
+
+    public static ActionResultPayload TransferItem(TransferItemPayload transfer) {
+        if (!Inventories.TryGetValue(transfer.FromCharacterId, out var from) || !Inventories.TryGetValue(transfer.ToCharacterId, out var to)) {
+            return new(false, "character not found");
+        }
+
+        var have = from.GetValueOrDefault(transfer.ItemId);
+        if (have < transfer.Count) {
+            return new(false, have == 0 ? "does not have it" : $"has only {have}");
+        }
+
+        from[transfer.ItemId] = have - transfer.Count;
+        to[transfer.ItemId] = to.GetValueOrDefault(transfer.ItemId) + transfer.Count;
+        var name = Npcs.SelectMany(n => n.Items ?? []).FirstOrDefault(i => i.Id == transfer.ItemId)?.Name
+            ?? (transfer.ItemId == GoldId ? "Gold" : transfer.ItemId);
+        return new(true, null, name);
     }
 
     public static GetPlayerInfoResponsePayload PlayerInfo =>

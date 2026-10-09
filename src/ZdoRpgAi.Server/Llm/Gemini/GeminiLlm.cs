@@ -95,17 +95,8 @@ public class GeminiLlm : ILlm {
 
             if (msg.ToolCalls != null) {
                 foreach (var tc in msg.ToolCalls) {
-                    var args = new JsonObject();
-                    foreach (var kv in tc.Arguments) {
-                        if (kv.Value is JsonElement je) {
-                            args[kv.Key] = JsonNode.Parse(je.GetRawText());
-                        }
-                        else {
-                            args[kv.Key] = kv.Value != null ? JsonValue.Create(kv.Value?.ToString()) : null;
-                        }
-                    }
                     parts.AddNode(new JsonObject {
-                        ["functionCall"] = new JsonObject { ["name"] = tc.Name, ["args"] = args }
+                        ["functionCall"] = new JsonObject { ["name"] = tc.Name, ["args"] = tc.Arguments.DeepClone() }
                     });
                 }
             }
@@ -202,16 +193,10 @@ public class GeminiLlm : ILlm {
 
             if (part?["functionCall"] != null) {
                 var fc = part["functionCall"]!;
-                var args = new Dictionary<string, object?>();
-                if (fc["args"] != null) {
-                    foreach (var kv in fc["args"]!.AsObject()) {
-                        args[kv.Key] = kv.Value?.GetValue<string>();
-                    }
-                }
                 toolCalls.Add(new LlmToolCall {
                     Id = $"call_{callIndex++}",
                     Name = fc["name"]!.GetValue<string>(),
-                    Arguments = args,
+                    Arguments = fc["args"]?.DeepClone() as JsonObject ?? new JsonObject(),
                 });
             }
         }

@@ -110,6 +110,9 @@ public class EmulatorSession {
             case nameof(ServerToModMessageType.ShowMessageBox):
                 HandleShowMessageBox(msg);
                 break;
+            case nameof(ServerToModMessageType.TransferItem):
+                HandleTransferItem(msg);
+                break;
             case nameof(ClientToModMessageType.SayMp3File):
                 HandleSayMp3File(msg);
                 break;
@@ -204,6 +207,7 @@ public class EmulatorSession {
         if (p != null) {
             Log.Info("[MOD] {NpcId} starts following {Target}", p.NpcId, p.TargetCharacterId);
         }
+        RespondActionResult(msg, new ActionResultPayload(p != null));
     }
 
     private void HandleNpcStopFollow(Message msg) {
@@ -211,6 +215,7 @@ public class EmulatorSession {
         if (p != null) {
             Log.Info("[MOD] {NpcId} stops following", p.NpcId);
         }
+        RespondActionResult(msg, new ActionResultPayload(p != null));
     }
 
     private void HandleNpcAttack(Message msg) {
@@ -218,6 +223,7 @@ public class EmulatorSession {
         if (p != null) {
             Log.Info("[MOD] {NpcId} attacks {Target}", p.NpcId, p.TargetCharacterId);
         }
+        RespondActionResult(msg, new ActionResultPayload(p != null));
     }
 
     private void HandleNpcStopAttack(Message msg) {
@@ -225,6 +231,25 @@ public class EmulatorSession {
         if (p != null) {
             Log.Info("[MOD] {NpcId} stops attacking", p.NpcId);
         }
+        RespondActionResult(msg, new ActionResultPayload(p != null));
+    }
+
+    private void HandleTransferItem(Message msg) {
+        var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.TransferItemPayload);
+        if (p == null) {
+            RespondActionResult(msg, new ActionResultPayload(false, "bad request"));
+            return;
+        }
+
+        var result = SeydaNeenWorld.TransferItem(p);
+        Log.Info("[MOD] Transfer {ItemId} x{Count} from {From} to {To}: {Result}",
+            p.ItemId, p.Count, p.FromCharacterId, p.ToCharacterId, result.Error ?? "done");
+        RespondActionResult(msg, result);
+    }
+
+    private void RespondActionResult(Message msg, ActionResultPayload result) {
+        var payload = JsonExtensions.SerializeToObject(result, PayloadJsonContext.Default.ActionResultPayload);
+        _rpc.Respond(msg.Type, msg.Id, payload);
     }
 
     private void HandleShowMessageBox(Message msg) {

@@ -24,6 +24,7 @@ public enum ServerToModMessageType {
     NpcAttack,
     NpcStopAttack,
     ShowMessageBox,
+    TransferItem,
 }
 
 public record SpeechRecognitionInProgressPayload(string PlayerId, string Text);
@@ -51,3 +52,7 @@ public record NpcStopFollowCharacterPayload(string NpcId);
 public record NpcAttackPayload(string NpcId, string TargetCharacterId);
 public record NpcStopAttackPayload(string NpcId);
 public record ShowMessageBoxPayload(string Message);
+public record TransferItemPayload(string FromCharacterId, string ToCharacterId, string ItemId, int Count);
+
+// Reply to an action: Error explains a refusal, ItemName is the display name of a transferred item
+public record ActionResultPayload(bool Success, string? Error = null, string? ItemName = null);

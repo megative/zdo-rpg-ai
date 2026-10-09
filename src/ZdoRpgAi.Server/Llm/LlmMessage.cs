@@ -1,3 +1,5 @@
+using System.Text.Json.Nodes;
+
 namespace ZdoRpgAi.Server.Llm;
 
 public enum LlmRole { User, Model }
@@ -12,7 +14,7 @@ public class LlmMessage {
 public class LlmToolCall {
     public required string Id { get; init; }
     public required string Name { get; init; }
-    public Dictionary<string, object?> Arguments { get; init; } = new();
+    public JsonObject Arguments { get; init; } = new();
 }
 
 public class LlmToolResult {
