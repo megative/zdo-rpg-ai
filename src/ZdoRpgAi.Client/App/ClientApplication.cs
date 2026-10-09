@@ -1,3 +1,4 @@
+using ZdoRpgAi.Client.Hotkey;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Channel;
 using ZdoRpgAi.Protocol.Messages;
@@ -12,6 +13,8 @@ public class ClientApplication : IDisposable {
     private readonly Mp3Manager _mp3;
     private readonly VoiceCaptureService? _voiceCapture;
     private readonly bool _stripDiacritics;
+    private readonly ModHotkeyListener? _pushToTalk;
+    private readonly string? _pushToTalkKey;
 
     // Tracked state from mod
     private volatile string? _localPlayerId;
@@ -21,12 +24,16 @@ public class ClientApplication : IDisposable {
         ClientChannelBridge bridge,
         Mp3Manager mp3,
         VoiceCaptureService? voiceCapture = null,
-        bool stripDiacritics = false
+        bool stripDiacritics = false,
+        ModHotkeyListener? pushToTalk = null,
+        string? pushToTalkKey = null
     ) {
         _bridge = bridge;
         _mp3 = mp3;
         _voiceCapture = voiceCapture;
         _stripDiacritics = stripDiacritics;
+        _pushToTalk = pushToTalk;
+        _pushToTalkKey = pushToTalkKey;
 
         _bridge.ServerMessageReceived += HandleServerMessage;
         _bridge.ModMessageReceived += HandleModMessage;
@@ -39,6 +46,13 @@ public class ClientApplication : IDisposable {
     }
 
     public async Task RunAsync(CancellationToken ct) {
+        // The mod watches the push-to-talk key; it keeps the key across game sessions once told
+        if (_pushToTalkKey != null) {
+            var data = JsonExtensions.SerializeToObject(new SetPushToTalkKeyPayload(_pushToTalkKey), PayloadJsonContext.Default.SetPushToTalkKeyPayload);
+            _bridge.SendMessageToMod(new Message(nameof(ClientToModMessageType.SetPushToTalkKey), 0, null, data, null));
+            Log.Info("Push-to-talk key: {Key} (watched by the game)", _pushToTalkKey);
+        }
+
         var tasks = new List<Task> {
             _bridge.RunAsync(ct)
         };
@@ -105,6 +119,14 @@ public class ClientApplication : IDisposable {
 
     private void HandleModMessage(Message msg) {
         Log.Debug("Mod -> Client: {Type}", msg.Type);
+
+        if (msg.Type == nameof(ModToClientMessageType.PushToTalk)) {
+            var e = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.PushToTalkPayload);
+            if (e != null) {
+                _pushToTalk?.SetPressed(e.Pressed);
+            }
+            return;
+        }
 
         switch (msg.Type) {
             case nameof(ModToServerMessageType.PlayerAdded): {

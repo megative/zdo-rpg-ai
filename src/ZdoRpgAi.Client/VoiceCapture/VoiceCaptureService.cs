@@ -37,7 +37,13 @@ public class VoiceCaptureService : IDisposable {
     private readonly IMicrophoneListener _capture;
     private readonly IHotkeyListener? _hotkey;
 
+    // Audio from just before the key press: the press reaches the client through the game's log a
+    // little late, and without these frames the start of the first word would be cut off
+    private const int PreRollMs = 300;
+
     private readonly System.Threading.Channels.Channel<byte[]> _audioChannel;
+    private readonly object _activationLock = new();
+    private readonly Queue<byte[]> _preRoll = new();
     private volatile bool _isActive;
     private int _activeFrameCount;
     private int _activeZeroFrameCount;
@@ -91,9 +97,16 @@ public class VoiceCaptureService : IDisposable {
     }
 
     private void HandleFrameCaptured(ReadOnlyMemory<byte> frame) {
-        // Only enqueue audio when active
-        if (!_isActive) {
-            return;
+        var copy = frame.ToArray();
+        lock (_activationLock) {
+            // While inactive, keep only the last moment of audio for the next activation
+            if (!_isActive) {
+                _preRoll.Enqueue(copy);
+                if (_preRoll.Count > PreRollMs / _config.FrameSizeMs) {
+                    _preRoll.Dequeue();
+                }
+                return;
+            }
         }
 
         _activeFrameCount++;
@@ -101,7 +114,6 @@ public class VoiceCaptureService : IDisposable {
             _activeZeroFrameCount++;
         }
 
-        var copy = frame.ToArray();
         _audioChannel.Writer.TryWrite(copy);
     }
 
@@ -176,9 +188,16 @@ public class VoiceCaptureService : IDisposable {
         _capture.CheckSampleRate();
         _activeFrameCount = 0;
         _activeZeroFrameCount = 0;
-        _isActive = true;
         Log.Info("Mic activated");
-        ThreadPool.QueueUserWorkItem(_ => Activated?.Invoke());
+        // Listeners first, so that the start of speech is announced before its audio goes out
+        Activated?.Invoke();
+        lock (_activationLock) {
+            foreach (var frame in _preRoll) {
+                _audioChannel.Writer.TryWrite(frame);
+            }
+            _preRoll.Clear();
+            _isActive = true;
+        }
     }
 
     private void Deactivate() {
@@ -186,9 +205,11 @@ public class VoiceCaptureService : IDisposable {
             return;
         }
 
-        _isActive = false;
+        lock (_activationLock) {
+            _isActive = false;
+        }
         if (_activeFrameCount > 0 && _activeFrameCount == _activeZeroFrameCount) {
-            Log.Warn("All {Count} mic frames were silent (all zeroes). Check macOS microphone permissions for your terminal app (System Settings > Privacy & Security > Microphone)", _activeFrameCount);
+            Log.Warn("All {Count} mic frames were silent (all zeroes). Check the microphone device (voiceCapture.deviceIndex) and its permissions (on macOS: System Settings > Privacy & Security > Microphone)", _activeFrameCount);
         }
         Log.Info("Mic deactivated");
         ThreadPool.QueueUserWorkItem(_ => Deactivated?.Invoke());

@@ -34,6 +34,8 @@ voiceCapture:
   sampleRate: 16000
   frameSizeMs: 20
   deviceIndex: -1
+  # The game watches the key (works on any OS and under Wayland): a letter, a digit, F1-F12,
+  # LeftAlt, CapsLock, Space or any other openmw.input.KEY name
   pushToTalk:
     key: Y
     subMode: hold

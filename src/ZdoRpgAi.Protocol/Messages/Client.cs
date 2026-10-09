@@ -4,13 +4,22 @@ namespace ZdoRpgAi.Protocol.Messages;
 
 public enum ClientToModMessageType {
     SayMp3File,
+    SetPushToTalkKey,
 }
 
 public record SayMp3FilePayload(string NpcId, string Mp3Name, string Text, double? DurationSec = null, string? TargetId = null);
 
+// Key: an openmw.input.KEY name, e.g. "Y", "F1", "LeftAlt"
+public record SetPushToTalkKeyPayload(string Key);
+
 // Mod → Client
 
+public enum ModToClientMessageType {
+    PushToTalk,
+}
+
 public record StartSessionAckPayload(string SessionId);
+public record PushToTalkPayload(bool Pressed);
 
 // Client → Both (Mod + Server)
 

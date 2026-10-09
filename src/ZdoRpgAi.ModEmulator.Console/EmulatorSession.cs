@@ -152,6 +152,11 @@ public class EmulatorSession {
             case nameof(ClientToModMessageType.SayMp3File):
                 HandleSayMp3File(msg);
                 break;
+            case nameof(ClientToModMessageType.SetPushToTalkKey): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.SetPushToTalkKeyPayload);
+                    Log.Info("[MOD] Push-to-talk key: {Key}", p?.Key ?? "?");
+                    break;
+                }
             case nameof(ClientToBothMessageType.PlayerStartSpeak):
                 Log.Info("[MOD] Player started speaking");
                 break;

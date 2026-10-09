@@ -33,6 +33,8 @@ namespace ZdoRpgAi.Protocol.Messages;
 [JsonSerializable(typeof(ActionResultPayload))]
 // Mod → Client
 [JsonSerializable(typeof(StartSessionAckPayload))]
+[JsonSerializable(typeof(PushToTalkPayload))]
+[JsonSerializable(typeof(SetPushToTalkKeyPayload))]
 // Client → Mod
 [JsonSerializable(typeof(SayMp3FilePayload))]
 // Client → Both
