@@ -41,7 +41,7 @@ public class GameRunner {
         var story = new Story.Story(saveGameRepo, summaryBuilder, directorConfig);
         _playerHandler = new PlayerMessageHandler(stt, rpc);
         var directorHelper = new Director.DirectorHelper(rpc);
-        _storyComposer = new StoryComposer(story, directorHelper);
+        _storyComposer = new StoryComposer(story, directorHelper, saveGameRepo);
         _npcRepo = new NpcRepository(mainRepo, saveGameRepo, rpc);
         var speedAdjuster = new Mp3SpeedAdjuster(mp3SpeedConfig);
         var npcSpeechGenerator = new NpcSpeechGenerator(tts, speedAdjuster);

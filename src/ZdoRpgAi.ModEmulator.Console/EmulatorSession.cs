@@ -158,7 +158,7 @@ public class EmulatorSession {
         if (req == null) return;
 
         var characters = SeydaNeenWorld.GetCharactersWhoHear(req.CharacterId, req.MaxDistanceMeters);
-        var response = new GetCharactersWhoHearResponsePayload(characters, SeydaNeenWorld.GameTime);
+        var response = new GetCharactersWhoHearResponsePayload(characters, SeydaNeenWorld.GameTime, SeydaNeenWorld.SaveId);
         var payload = JsonExtensions.SerializeToObject(response, PayloadJsonContext.Default.GetCharactersWhoHearResponsePayload);
         _rpc.Respond(nameof(ModToServerMessageType.GetCharactersWhoHearResponse), msg.Id, payload);
         Log.Info("GetCharactersWhoHear ({CharacterId}): {Count} nearby", req.CharacterId, characters.Length);

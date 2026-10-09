@@ -1,6 +1,8 @@
 namespace ZdoRpgAi.Repository;
 
 public interface ISaveGameRepository : IDisposable {
+    // Switches to the database of another playthrough; returns false if it is already active
+    bool SetSaveContext(string saveId);
     long AddStoryEvent(string gameTime, string realTime, string type, string dataJson);
     void AddStoryEventObservers(long storyEventId, string[] characterIds);
     List<RawStoryEvent> GetActiveStoryEventsForCharacter(string characterId);

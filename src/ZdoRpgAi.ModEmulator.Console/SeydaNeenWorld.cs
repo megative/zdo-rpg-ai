@@ -11,6 +11,7 @@ public static class SeydaNeenWorld {
     public const string CellName = "Seyda Neen";
     public const string PlayerId = "player";
     public const string GameTime = "09:30, 16 Last Seed 3E 427";
+    public const string SaveId = "emulator";
 
     public static readonly NpcDefinition[] Npcs = [
         new("fargoth", "Fargoth", "Wood Elf", "Male", 10f, 5f, "Commoner", Level: 2, Gold: 25,

@@ -4,26 +4,68 @@ using ZdoRpgAi.Database;
 
 namespace ZdoRpgAi.Repository;
 
+// Each playthrough has its own database file, chosen by the save id the mod reports. Saves made
+// before save ids existed report "default", which maps to the configured path, so their memories
+// carry over. Per-save files and the locking follow waterbobo24's fork
+// (github.com/waterbobo24/Morrowind-llm-server-client).
 public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable {
-    private readonly SaveGameDatabase _db;
+    private const string DefaultSaveId = "default";
+
+    private readonly string _basePath;
+    // One SQLite connection is shared by concurrent story and director tasks
+    private readonly object _lock = new();
+    private SaveGameDatabase _db;
+    private string _saveId = DefaultSaveId;
 
     public LocalDatabaseSaveGameRepository(string path) {
-        _db = new SaveGameDatabase(path);
-        _db.Open();
+        _basePath = path;
+        _db = Open(path);
+    }
+
+    public bool SetSaveContext(string saveId) {
+        lock (_lock) {
+            if (saveId == _saveId) {
+                return false;
+            }
+
+            var db = Open(GetPath(saveId));
+            _db.Dispose();
+            _db = db;
+            _saveId = saveId;
+            return true;
+        }
+    }
+
+    private string GetPath(string saveId) {
+        if (saveId == DefaultSaveId) {
+            return _basePath;
+        }
+
+        var safeId = new string(saveId.Select(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_' ? c : '_').ToArray());
+        var dir = Path.GetDirectoryName(_basePath) ?? ".";
+        return Path.Combine(dir, $"{Path.GetFileNameWithoutExtension(_basePath)}_{safeId}{Path.GetExtension(_basePath)}");
+    }
+
+    private static SaveGameDatabase Open(string path) {
+        var db = new SaveGameDatabase(path);
+        db.Open();
+        return db;
     }
 
     public long AddStoryEvent(string gameTime, string realTime, string type, string dataJson) {
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO story_event (gameTime, realTime, type, dataJson)
-            VALUES ($gameTime, $realTime, $type, $dataJson)
-            RETURNING id
-            """;
-        cmd.Parameters.AddWithValue("$gameTime", gameTime);
-        cmd.Parameters.AddWithValue("$realTime", realTime);
-        cmd.Parameters.AddWithValue("$type", type);
-        cmd.Parameters.AddWithValue("$dataJson", dataJson);
-        return (long)cmd.ExecuteScalar()!;
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO story_event (gameTime, realTime, type, dataJson)
+                VALUES ($gameTime, $realTime, $type, $dataJson)
+                RETURNING id
+                """;
+            cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            cmd.Parameters.AddWithValue("$realTime", realTime);
+            cmd.Parameters.AddWithValue("$type", type);
+            cmd.Parameters.AddWithValue("$dataJson", dataJson);
+            return (long)cmd.ExecuteScalar()!;
+        }
     }
 
     public void AddStoryEventObservers(long storyEventId, string[] characterIds) {
@@ -31,92 +73,100 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
             return;
         }
 
-        using var tx = _db.Connection.BeginTransaction();
-        foreach (var characterId in characterIds) {
-            using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = "INSERT INTO story_event_observer (storyEventId, characterId) VALUES ($eventId, $charId)";
-            cmd.Parameters.AddWithValue("$eventId", storyEventId);
-            cmd.Parameters.AddWithValue("$charId", characterId);
-            cmd.ExecuteNonQuery();
+        lock (_lock) {
+            using var tx = _db.Connection.BeginTransaction();
+            foreach (var characterId in characterIds) {
+                using var cmd = _db.Connection.CreateCommand();
+                cmd.CommandText = "INSERT INTO story_event_observer (storyEventId, characterId) VALUES ($eventId, $charId)";
+                cmd.Parameters.AddWithValue("$eventId", storyEventId);
+                cmd.Parameters.AddWithValue("$charId", characterId);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
         }
-        tx.Commit();
     }
 
     public List<RawStoryEvent> GetActiveStoryEventsForCharacter(string characterId) {
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT DISTINCT se.id, se.gameTime, se.realTime, se.type, se.dataJson
-            FROM story_event se
-            LEFT JOIN story_event_observer seo ON se.id = seo.storyEventId
-            WHERE se.archivedTo IS NULL
-              AND (
-                json_extract(se.dataJson, '$.playerCharacterId') = $charId
-                OR json_extract(se.dataJson, '$.targetCharacterId') = $charId
-                OR json_extract(se.dataJson, '$.npcCharacterId') = $charId
-                OR seo.characterId = $charId
-              )
-            ORDER BY se.id
-            """;
-        cmd.Parameters.AddWithValue("$charId", characterId);
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT DISTINCT se.id, se.gameTime, se.realTime, se.type, se.dataJson
+                FROM story_event se
+                LEFT JOIN story_event_observer seo ON se.id = seo.storyEventId
+                WHERE se.archivedTo IS NULL
+                  AND (
+                    json_extract(se.dataJson, '$.playerCharacterId') = $charId
+                    OR json_extract(se.dataJson, '$.targetCharacterId') = $charId
+                    OR json_extract(se.dataJson, '$.npcCharacterId') = $charId
+                    OR seo.characterId = $charId
+                  )
+                ORDER BY se.id
+                """;
+            cmd.Parameters.AddWithValue("$charId", characterId);
 
-        var results = new List<RawStoryEvent>();
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) {
-            results.Add(new RawStoryEvent(
-                reader.GetInt64(0),
-                reader.GetString(1),
-                reader.GetString(2),
-                reader.GetString(3),
-                reader.GetString(4)));
+            var results = new List<RawStoryEvent>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                results.Add(new RawStoryEvent(
+                    reader.GetInt64(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetString(3),
+                    reader.GetString(4)));
+            }
+            return results;
         }
-        return results;
     }
 
     public List<RawStoryEventSummary> GetActiveSummariesForCharacter(string characterId) {
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            SELECT DISTINCT s.id, s.summary, s.realTime
-            FROM story_event_summary s
-            JOIN story_event_summary_observer so ON s.id = so.summaryId
-            WHERE so.characterId = $charId AND s.archivedTo IS NULL
-            ORDER BY s.id
-            """;
-        cmd.Parameters.AddWithValue("$charId", characterId);
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT DISTINCT s.id, s.summary, s.realTime
+                FROM story_event_summary s
+                JOIN story_event_summary_observer so ON s.id = so.summaryId
+                WHERE so.characterId = $charId AND s.archivedTo IS NULL
+                ORDER BY s.id
+                """;
+            cmd.Parameters.AddWithValue("$charId", characterId);
 
-        var results = new List<RawStoryEventSummary>();
-        using var reader = cmd.ExecuteReader();
-        while (reader.Read()) {
-            results.Add(new RawStoryEventSummary(
-                reader.GetInt64(0),
-                reader.GetString(1),
-                reader.GetString(2)));
+            var results = new List<RawStoryEventSummary>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                results.Add(new RawStoryEventSummary(
+                    reader.GetInt64(0),
+                    reader.GetString(1),
+                    reader.GetString(2)));
+            }
+            return results;
         }
-        return results;
     }
 
     public long AddStoryEventSummary(string summary, string realTime, string[] characterIds) {
-        using var tx = _db.Connection.BeginTransaction();
+        lock (_lock) {
+            using var tx = _db.Connection.BeginTransaction();
 
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO story_event_summary (summary, realTime)
-            VALUES ($summary, $realTime)
-            RETURNING id
-            """;
-        cmd.Parameters.AddWithValue("$summary", summary);
-        cmd.Parameters.AddWithValue("$realTime", realTime);
-        var summaryId = (long)cmd.ExecuteScalar()!;
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO story_event_summary (summary, realTime)
+                VALUES ($summary, $realTime)
+                RETURNING id
+                """;
+            cmd.Parameters.AddWithValue("$summary", summary);
+            cmd.Parameters.AddWithValue("$realTime", realTime);
+            var summaryId = (long)cmd.ExecuteScalar()!;
 
-        foreach (var characterId in characterIds) {
-            using var obsCmd = _db.Connection.CreateCommand();
-            obsCmd.CommandText = "INSERT INTO story_event_summary_observer (summaryId, characterId) VALUES ($summaryId, $charId)";
-            obsCmd.Parameters.AddWithValue("$summaryId", summaryId);
-            obsCmd.Parameters.AddWithValue("$charId", characterId);
-            obsCmd.ExecuteNonQuery();
+            foreach (var characterId in characterIds) {
+                using var obsCmd = _db.Connection.CreateCommand();
+                obsCmd.CommandText = "INSERT INTO story_event_summary_observer (summaryId, characterId) VALUES ($summaryId, $charId)";
+                obsCmd.Parameters.AddWithValue("$summaryId", summaryId);
+                obsCmd.Parameters.AddWithValue("$charId", characterId);
+                obsCmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+            return summaryId;
         }
-
-        tx.Commit();
-        return summaryId;
     }
 
     public void ArchiveStoryEvents(long[] eventIds, long summaryId) {
@@ -124,15 +174,17 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
             return;
         }
 
-        using var tx = _db.Connection.BeginTransaction();
-        foreach (var eventId in eventIds) {
-            using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = "UPDATE story_event SET archivedTo = $summaryId WHERE id = $eventId";
-            cmd.Parameters.AddWithValue("$summaryId", summaryId);
-            cmd.Parameters.AddWithValue("$eventId", eventId);
-            cmd.ExecuteNonQuery();
+        lock (_lock) {
+            using var tx = _db.Connection.BeginTransaction();
+            foreach (var eventId in eventIds) {
+                using var cmd = _db.Connection.CreateCommand();
+                cmd.CommandText = "UPDATE story_event SET archivedTo = $summaryId WHERE id = $eventId";
+                cmd.Parameters.AddWithValue("$summaryId", summaryId);
+                cmd.Parameters.AddWithValue("$eventId", eventId);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
         }
-        tx.Commit();
     }
 
     public void ArchiveStoryEventSummaries(long[] summaryIds, long newSummaryId) {
@@ -140,22 +192,27 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
             return;
         }
 
-        using var tx = _db.Connection.BeginTransaction();
-        foreach (var summaryId in summaryIds) {
-            using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = "UPDATE story_event_summary SET archivedTo = $newSummaryId WHERE id = $summaryId";
-            cmd.Parameters.AddWithValue("$newSummaryId", newSummaryId);
-            cmd.Parameters.AddWithValue("$summaryId", summaryId);
-            cmd.ExecuteNonQuery();
+        lock (_lock) {
+            using var tx = _db.Connection.BeginTransaction();
+            foreach (var summaryId in summaryIds) {
+                using var cmd = _db.Connection.CreateCommand();
+                cmd.CommandText = "UPDATE story_event_summary SET archivedTo = $newSummaryId WHERE id = $summaryId";
+                cmd.Parameters.AddWithValue("$newSummaryId", newSummaryId);
+                cmd.Parameters.AddWithValue("$summaryId", summaryId);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
         }
-        tx.Commit();
     }
 
     public RawNpcInfo? GetNpcInfo(string npcId) {
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = "SELECT dataJson FROM npc_new WHERE id = $id";
-        cmd.Parameters.AddWithValue("$id", npcId);
-        var json = cmd.ExecuteScalar() as string;
+        string? json;
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT dataJson FROM npc_new WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", npcId);
+            json = cmd.ExecuteScalar() as string;
+        }
         if (json == null) {
             return null;
         }
@@ -170,18 +227,22 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
 
     public void SaveNpcInfo(RawNpcInfo info) {
         var json = JsonSerializer.Serialize(new NpcDataJson(info.Name, info.Race, info.Sex, info.ClassName, info.Faction, info.FactionRank), NpcDataJsonContext.Default.NpcDataJson);
-        using var cmd = _db.Connection.CreateCommand();
-        cmd.CommandText = """
-            INSERT INTO npc_new (id, dataJson) VALUES ($id, $data)
-            ON CONFLICT(id) DO UPDATE SET dataJson = $data
-            """;
-        cmd.Parameters.AddWithValue("$id", info.Id);
-        cmd.Parameters.AddWithValue("$data", json);
-        cmd.ExecuteNonQuery();
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO npc_new (id, dataJson) VALUES ($id, $data)
+                ON CONFLICT(id) DO UPDATE SET dataJson = $data
+                """;
+            cmd.Parameters.AddWithValue("$id", info.Id);
+            cmd.Parameters.AddWithValue("$data", json);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     public void Dispose() {
-        _db.Dispose();
+        lock (_lock) {
+            _db.Dispose();
+        }
     }
 }
 

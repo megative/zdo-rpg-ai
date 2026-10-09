@@ -41,11 +41,11 @@ public class DirectorHelper {
                 .Select(c => c.CharacterId)
                 .Where(id => id != characterId && (excludeIds == null ? true : !excludeIds.Contains(id)))
                 .ToArray();
-            return new Observers(ids, payload?.GameTime);
+            return new Observers(ids, payload?.GameTime, payload?.SaveId);
         }
         catch (Exception ex) {
             Log.Warn("Failed to query observers: {Error}", ex.Message);
-            return new Observers([], null);
+            return new Observers([], null, null);
         }
     }
 
@@ -66,5 +66,5 @@ public class DirectorHelper {
     }
 }
 
-// GameTime is the in-game time when the mod answered, null if the mod didn't report it
-public record Observers(string[] Ids, string? GameTime);
+// GameTime and SaveId come from the mod's reply, null if it didn't report them
+public record Observers(string[] Ids, string? GameTime, string? SaveId);

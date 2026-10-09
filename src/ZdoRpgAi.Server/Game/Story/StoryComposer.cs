@@ -1,4 +1,5 @@
 using ZdoRpgAi.Core;
+using ZdoRpgAi.Repository;
 using ZdoRpgAi.Server.Game.Director;
 
 namespace ZdoRpgAi.Server.Game.Story;
@@ -8,10 +9,12 @@ public class StoryComposer {
 
     private readonly Story _story;
     private readonly DirectorHelper _directorHelper;
+    private readonly ISaveGameRepository _saveGameRepo;
 
-    public StoryComposer(Story story, DirectorHelper directorHelper) {
+    public StoryComposer(Story story, DirectorHelper directorHelper, ISaveGameRepository saveGameRepo) {
         _story = story;
         _directorHelper = directorHelper;
+        _saveGameRepo = saveGameRepo;
     }
 
     public void OnPlayerSpeak(string playerId, string? targetCharacterId, string gameTime, string text) {
@@ -24,6 +27,12 @@ public class StoryComposer {
             Log.Trace("Querying observers for player {PlayerId}", playerId);
             var observers = await _directorHelper.QueryObserversAsync(playerId, targetCharacterId != null ? [targetCharacterId] : null);
             Log.Trace("Got {Count} observers, registering event", observers.Ids.Length);
+
+            // Every conversation starts with a player line, so switching here keeps memories in the
+            // right playthrough even after a load or a server restart
+            if (observers.SaveId != null && _saveGameRepo.SetSaveContext(observers.SaveId)) {
+                Log.Info("Switched to the memory of save {SaveId}", observers.SaveId);
+            }
 
             var evt = StoryEvent.Create(new StoryEvent.PlayerSpeak {
                 PlayerCharacterId = playerId,
