@@ -45,6 +45,12 @@ public class OpenmwModChannel : IChannel {
         _logFilePath = logFilePath;
         _pollIntervalMs = pollIntervalMs;
 
+        // Only lines written from now on matter. Set here rather than in RunAsync: messages sent
+        // before RunAsync starts can already make the mod answer, and those answers must be read.
+        if (File.Exists(_logFilePath)) {
+            _logPosition = new FileInfo(_logFilePath).Length;
+        }
+
         Log.Trace($"OpenmwModChannel out={_outFilePath} in={logFilePath}");
     }
 
@@ -67,11 +73,6 @@ public class OpenmwModChannel : IChannel {
 
     public async Task RunAsync() {
         Log.Info("Tailing log: {Path}, writing to: {OutPath}", _logFilePath, _outFilePath);
-
-        // Seek to end of log file so we only process new lines
-        if (File.Exists(_logFilePath)) {
-            _logPosition = new FileInfo(_logFilePath).Length;
-        }
 
         try {
             await HandshakeAsync();
