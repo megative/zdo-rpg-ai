@@ -349,6 +349,11 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             lines.AddRange(lore.Select(t => $"- [{t.Topic}] {string.Join(" / ", t.Lines)}"));
         }
 
+        if (scene?.Npc?.QuestTopics is { Length: > 0 } questTopics) {
+            lines.Add("Quest steps you give in the game's own dialogue (they happen when the player picks the topic there after you open it; the game may first want them to have done something):");
+            lines.AddRange(questTopics.Select(DescribeQuestTopic));
+        }
+
         var tasks = _actions.GetOpenTasks(npc.Id);
         if (tasks.Count > 0) {
             lines.Add("Tasks you gave the player that are still open:");
@@ -401,10 +406,25 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         "Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.",
         "When the player walks up to you, greet them in one short line that fits what you remember of them.",
         "Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough, and a tool call is no answer: always say your words too.",
-        "Quest orders, quest items and faction matters belong to the game's own dialogue: when the player needs them, say a few words and call open_dialogue. Never hand out quest items or pretend a quest step happened.",
+        "Quest orders, quest items and faction matters belong to the game's own dialogue: when the player needs them, say a few words, name the topic to pick if you know it, and call open_dialogue. Never hand out quest items or pretend a quest step happened.",
         "You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.",
         $"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.",
     ]);
+
+    // - topic "ring", starts the quest "Fargoth's Ring": there you say "...". Their journal then reads: "..."
+    private static string DescribeQuestTopic(SceneQuestTopic step) {
+        var where = step.Topic == null ? "your greeting when the dialogue opens" : $"topic \"{step.Topic}\"";
+        var quest = step.Quest == null ? "the quest" : $"the quest \"{step.Quest}\"";
+        var effect = step.Starts ? $"starts {quest}" : step.Finishes ? $"finishes {quest}" : $"moves {quest} on";
+        var line = $"- {where}, {effect}";
+        if (!string.IsNullOrEmpty(step.Line)) {
+            line += $": there you say \"{Shorten(step.Line, 300)}\"";
+        }
+        if (!string.IsNullOrEmpty(step.Entry)) {
+            line += $". Their journal then reads: \"{Shorten(step.Entry, 200)}\"";
+        }
+        return line;
+    }
 
     // "a male Dark Elf, Guard, Knight of the Imperial Legion, level 12"
     internal static string DescribeNpc(NpcInfo npc, SceneNpcState? state) {

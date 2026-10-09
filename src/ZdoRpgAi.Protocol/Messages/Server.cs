@@ -51,7 +51,10 @@ public record GetSceneContextResponsePayload(string? GameTime, string? CellName,
 // Disposition is the vanilla 0-100 attitude toward the player; Services are what the NPC offers
 // (barter, training, travel, spells, repair)
 public record SceneNpcState(int Level, float HealthRatio, int Gold, string[] Equipped, SceneItem[] Items,
-    int? Disposition = null, string[]? Services = null);
+    int? Disposition = null, string[]? Services = null, SceneQuestTopic[]? QuestTopics = null);
+// A quest step the NPC gives in the game's own dialogue: picking Topic there (no topic: its
+// greeting) says Line and writes Entry to the journal. Starts: the quest isn't started yet.
+public record SceneQuestTopic(string? Topic, string? Quest, bool Starts, bool Finishes, string? Line, string? Entry);
 public record ScenePlayerState(
     string Name, string Race, string Sex, string? ClassName, int Level,
     float HealthRatio, float FatigueRatio, string[] Equipped,

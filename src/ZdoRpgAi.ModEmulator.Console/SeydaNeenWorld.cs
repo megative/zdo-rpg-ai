@@ -5,7 +5,7 @@ namespace ZdoRpgAi.ModEmulator.Console;
 public record NpcDefinition(
     string ObjectId, string Name, string Race, string Sex, float X, float Y,
     string ClassName, string? Faction = null, string? FactionRank = null, int Level = 1, int Gold = 0,
-    string[]? Equipped = null, SceneItem[]? Items = null, string[]? Services = null);
+    string[]? Equipped = null, SceneItem[]? Items = null, string[]? Services = null, SceneQuestTopic[]? QuestTopics = null);
 
 public static class SeydaNeenWorld {
     public const string CellName = "Seyda Neen";
@@ -16,7 +16,10 @@ public static class SeydaNeenWorld {
     public static readonly NpcDefinition[] Npcs = [
         new("fargoth", "Fargoth", "Wood Elf", "Male", 10f, 5f, "Commoner", Level: 2, Gold: 25,
             Equipped: ["Common Shirt", "Common Pants", "Common Shoes"],
-            Items: [new("p_restore_health_s", "Potion of Restore Health", 2)]),
+            Items: [new("p_restore_health_s", "Potion of Restore Health", 2)],
+            QuestTopics: [new("ring", null, Starts: true, Finishes: false,
+                "I swear one of the guards has it. My engraved healing ring, a family heirloom. You haven't seen it, have you?",
+                "I met a Bosmer named Fargoth who claims Imperial guards stole his ring. He'd like it back.")]),
         new("arrille", "Arrille", "High Elf", "Male", 50f, 30f, "Trader Service", Level: 6, Gold: 800,
             Items: [new("iron_dagger", "Iron Dagger", 3), new("ingred_scamp_skin_01", "Scamp Skin", 2)],
             Services: ["barter"]),
@@ -34,7 +37,7 @@ public static class SeydaNeenWorld {
     public static GetSceneContextResponsePayload GetSceneContext(string npcId) {
         var npc = FindNpc(npcId);
         var npcState = npc == null ? null : new SceneNpcState(npc.Level, 1f, Inventories[npc.ObjectId].GetValueOrDefault(GoldId),
-            npc.Equipped ?? [], npc.Items ?? [], Dispositions.GetValueOrDefault(npc.ObjectId, 50), npc.Services ?? []);
+            npc.Equipped ?? [], npc.Items ?? [], Dispositions.GetValueOrDefault(npc.ObjectId, 50), npc.Services ?? [], npc.QuestTopics);
         var player = new ScenePlayerState("Nerevar", "Dark Elf", "male", "Battlemage", 3, 0.7f, 0.9f, ["Chitin Cuirass", "Iron Longsword"],
             Bounty: 0, Factions: [new("Fighters Guild", "Journeyman")],
             Quests: [new("Report to Caius Cosades", "I've been told to go to Balmora and report to a man named Caius Cosades.")]);
