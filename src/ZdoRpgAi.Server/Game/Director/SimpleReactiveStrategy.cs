@@ -19,6 +19,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private readonly DirectorHelper _directorHelper;
     private readonly DirectorSection _config;
     private readonly NpcActions _actions;
+    private readonly NpcPersonalityWriter _personalityWriter;
 
     public SimpleReactiveStrategy(
         ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
@@ -31,13 +32,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _directorHelper = directorHelper;
         _config = config;
         _actions = new NpcActions(rpc);
+        _personalityWriter = new NpcPersonalityWriter(simpleLlm);
     }
 
     public async Task<List<StoryEvent>> ProcessStoryEventsAsync(List<StoryEvent> events) {
         Log.Trace("Processing {Count} events", events.Count);
 
-        var playerIds = events.OfType<StoryEvent.PlayerSpeak>()
-            .Select(ps => ps.PlayerCharacterId)
+        var playerIds = events.OfType<StoryEvent.PlayerSpeak>().Select(ps => ps.PlayerCharacterId)
+            .Concat(events.OfType<StoryEvent.PlayerApproach>().Select(pa => pa.PlayerCharacterId))
             .ToHashSet();
         Log.Trace("Found {Count} player IDs: {Ids}", playerIds.Count, string.Join(", ", playerIds));
 
@@ -49,6 +51,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
 
         Log.Trace("Target NPC: {NpcId}, game time: {GameTime}", npcId, gameTime);
         var playerId = playerIds.FirstOrDefault();
+        _directorHelper.PublishNpcThinking(npcId);
 
         try {
             // Ask the game for the current scene while NPC info and history load
@@ -62,10 +65,20 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 return [];
             }
 
+            // First talk with this NPC: sketch its character while history and scene load
+            var personalityTask = npcInfo.Personality == null
+                ? WritePersonalityAsync(npcInfo, sceneTask)
+                : Task.FromResult<string?>(npcInfo.Personality);
+
             Log.Trace("NPC info: {Name} ({Race} {Sex})", npcInfo.Name, npcInfo.Race, npcInfo.Sex);
             var (history, summaries) = await _story.GetHistoryForCharacterAsync(npcId);
             Log.Trace("History: {HistoryCount} events, {SummaryCount} summaries", history.Count, summaries.Count);
             var scene = await sceneTask;
+            var personality = await personalityTask;
+            if (personality != null && npcInfo.Personality == null) {
+                _npcRepo.SavePersonality(npcInfo, personality);
+                npcInfo = npcInfo with { Personality = personality };
+            }
             var response = await GenerateNpcResponseAsync(npcInfo, scene, history, summaries);
             var text = response.Text?.Trim();
             var calls = response.ToolCalls ?? [];
@@ -96,6 +109,15 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         }
     }
 
+    private async Task<string?> WritePersonalityAsync(NpcInfo npc, Task<GetSceneContextResponsePayload?> sceneTask) {
+        var scene = await sceneTask;
+        var personality = await _personalityWriter.WriteAsync(npc, scene?.CellName);
+        if (personality != null) {
+            Log.Info("Wrote personality for {NpcId}: {Personality}", npc.Id, personality);
+        }
+        return personality;
+    }
+
     private async Task<(string? NpcId, string? GameTime)> FindLastTargetedNpcAsync(
         IRpcChannel rpc, List<StoryEvent> events, HashSet<string> playerIds) {
         Log.Trace("Finding last targeted NPC from {Count} events", events.Count);
@@ -109,6 +131,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                     }
 
                     break;
+                case StoryEvent.PlayerApproach pa:
+                    return (pa.NpcCharacterId, pa.GameTime);
                 case StoryEvent.NpcSpeak ns when ns.TargetCharacterId != null && !playerIds.Contains(ns.TargetCharacterId):
                     Log.Trace("Found NpcSpeak targeting non-player: {Target}", ns.TargetCharacterId);
                     return (ns.TargetCharacterId, ns.GameTime);
@@ -234,6 +258,9 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
 
     private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene) {
         var lines = new List<string> { $"You are {npc.Name}, {DescribeNpc(npc, scene?.Npc)}, living in Morrowind." };
+        if (!string.IsNullOrEmpty(npc.Personality)) {
+            lines.Add(npc.Personality);
+        }
 
         if (!string.IsNullOrEmpty(scene?.GameTime)) {
             lines.Add($"It is {scene.GameTime}.");
@@ -244,6 +271,12 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         if (scene?.Npc is { } self) {
             if (DescribeHealth(self.HealthRatio) is { } health) {
                 lines.Add($"You are {health}.");
+            }
+            if (self.Disposition is { } disposition) {
+                lines.Add($"Your disposition toward the player is {disposition}/100 ({DescribeDisposition(disposition)}).");
+            }
+            if (self.Services is { Length: > 0 }) {
+                lines.Add($"You offer these services: {string.Join(", ", self.Services)}.");
             }
             lines.Add($"You have {self.Gold} gold.");
             if (self.Equipped.Length > 0) {
@@ -268,6 +301,13 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             if (player.Equipped.Length > 0) {
                 playerLines.Add($"They are wearing: {string.Join(", ", player.Equipped)}.");
             }
+            if (player.Factions is { Length: > 0 }) {
+                var factions = player.Factions.Select(f => f.Rank == null ? f.Name : $"{f.Name} ({f.Rank})");
+                playerLines.Add($"They are known as a member of: {string.Join(", ", factions)}.");
+            }
+            if (player.Bounty > 0) {
+                playerLines.Add($"There is a bounty of {player.Bounty} gold on their head.");
+            }
             playerLines.Add($"Their name is {player.Name}, but you only know it if they have introduced themselves.");
         }
         if (!string.IsNullOrWhiteSpace(_config.PlayerBackstory)) {
@@ -283,6 +323,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         lines.Add($"Stay in character. Speak briefly and naturally, as in a real conversation. Never mention being an AI. Always respond in the {_config.ResponseLanguage} language.");
         lines.Add("You will be told what the people around you say and do. Reply only with your own speech: no narration, no name prefix, no stage directions.");
         lines.Add("Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.");
+        lines.Add("When the player walks up to you, greet them in one short line that fits what you remember of them.");
         lines.Add("Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.");
         lines.Add("You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.");
         return string.Join("\n", lines);
@@ -303,6 +344,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return string.Join(", ", parts);
     }
 
+    private static string DescribeDisposition(int disposition) => disposition switch {
+        < 20 => "hostile",
+        < 40 => "unfriendly",
+        < 60 => "neutral",
+        < 80 => "friendly",
+        _ => "very friendly",
+    };
+
     private static string? DescribeHealth(float ratio) => ratio switch {
         >= 0.95f => null,
         >= 0.6f => "slightly wounded",
@@ -317,6 +366,9 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             switch (evt) {
                 case StoryEvent.PlayerSpeak ps:
                     names.TryAdd(ps.PlayerCharacterId, "Player");
+                    break;
+                case StoryEvent.PlayerApproach pa:
+                    names.TryAdd(pa.PlayerCharacterId, "Player");
                     break;
                 case StoryEvent.NpcSpeak ns when !names.ContainsKey(ns.NpcCharacterId):
                     var info = await _npcRepo.GetNpcInfoAsync(ns.NpcCharacterId);
@@ -336,6 +388,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             StoryEvent.PlayerSpeak ps => $"{NameOf(ps.PlayerCharacterId)}: {ps.Text}",
             StoryEvent.NpcSpeak ns => $"{NameOf(ns.NpcCharacterId)}: {ns.Text}",
             StoryEvent.NpcAction na => $"{NameOf(na.NpcCharacterId)} {StoryEvent.DescribeAction(na)}",
+            StoryEvent.PlayerApproach pa => $"{NameOf(pa.PlayerCharacterId)} walks up to {NameOf(pa.NpcCharacterId)}",
             _ => evt.ToString()!,
         };
         // Events recorded before the mod reported game time carry "0"

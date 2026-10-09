@@ -69,6 +69,9 @@ director:
   responseLanguage: Russian
   # Optional: who the player character is, e.g. "A former Imperial prisoner who arrived in Seyda Neen by boat."
   playerBackstory: ""
+  # NPCs that remember the player greet them first, at most once per cooldown per NPC
+  greetings: true
+  greetingCooldownMinutes: 10
 
 # LLM (dummy | gemini | openai)
 llm:

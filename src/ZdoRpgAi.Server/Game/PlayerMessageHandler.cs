@@ -15,6 +15,7 @@ public class PlayerMessageHandler {
     private SpeakingSession? _finishingSession;
 
     public event Action<string, string?, string, string>? PlayerSpoke;
+    public event Action<string, string>? PlayerApproached;
 
     public PlayerMessageHandler(ISpeechToText stt, IRpcChannel rpc) {
         _stt = stt;
@@ -37,6 +38,9 @@ public class PlayerMessageHandler {
                 break;
             case nameof(ClientToBothMessageType.PlayerStopSpeak):
                 HandlePlayerStopSpeak(msg);
+                break;
+            case nameof(ModToServerMessageType.TargetChanged):
+                HandleTargetChanged(msg);
                 break;
         }
     }
@@ -139,6 +143,15 @@ public class PlayerMessageHandler {
         Log.Info("Player {PlayerId} speaks: {Text}", payload.PlayerId, payload.Text);
 
         PlayerSpoke?.Invoke(payload.PlayerId, payload.TargetCharacterId, payload.GameTime, payload.Text);
+    }
+
+    private void HandleTargetChanged(Message msg) {
+        var payload = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.TargetChangedPayload);
+        if (payload?.NpcId == null) {
+            return;
+        }
+
+        PlayerApproached?.Invoke(payload.PlayerId, payload.NpcId);
     }
 
     private record SpeakingSession(string PlayerId, string? TargetCharacterId, string GameTime);

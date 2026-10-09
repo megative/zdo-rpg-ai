@@ -5,7 +5,7 @@ namespace ZdoRpgAi.ModEmulator.Console;
 public record NpcDefinition(
     string ObjectId, string Name, string Race, string Sex, float X, float Y,
     string ClassName, string? Faction = null, string? FactionRank = null, int Level = 1, int Gold = 0,
-    string[]? Equipped = null, SceneItem[]? Items = null);
+    string[]? Equipped = null, SceneItem[]? Items = null, string[]? Services = null);
 
 public static class SeydaNeenWorld {
     public const string CellName = "Seyda Neen";
@@ -18,7 +18,8 @@ public static class SeydaNeenWorld {
             Equipped: ["Common Shirt", "Common Pants", "Common Shoes"],
             Items: [new("p_restore_health_s", "Potion of Restore Health", 2)]),
         new("arrille", "Arrille", "High Elf", "Male", 50f, 30f, "Trader Service", Level: 6, Gold: 800,
-            Items: [new("iron_dagger", "Iron Dagger", 3), new("ingred_scamp_skin_01", "Scamp Skin", 2)]),
+            Items: [new("iron_dagger", "Iron Dagger", 3), new("ingred_scamp_skin_01", "Scamp Skin", 2)],
+            Services: ["barter"]),
         new("sellus_gravius", "Sellus Gravius", "Imperial", "Male", 5f, 2f, "Guard", "Imperial Legion", "Knight Errant", 10, 120,
             Equipped: ["Imperial Steel Cuirass", "Imperial Broadsword"]),
         new("hrisskar_flat-foot", "Hrisskar Flat-Foot", "Nord", "Male", 55f, 32f, "Warrior", Level: 8, Gold: 60),
@@ -32,8 +33,10 @@ public static class SeydaNeenWorld {
 
     public static GetSceneContextResponsePayload GetSceneContext(string npcId) {
         var npc = FindNpc(npcId);
-        var npcState = npc == null ? null : new SceneNpcState(npc.Level, 1f, Inventories[npc.ObjectId].GetValueOrDefault(GoldId), npc.Equipped ?? [], npc.Items ?? []);
-        var player = new ScenePlayerState("Nerevar", "Dark Elf", "male", "Battlemage", 3, 0.7f, 0.9f, ["Chitin Cuirass", "Iron Longsword"]);
+        var npcState = npc == null ? null : new SceneNpcState(npc.Level, 1f, Inventories[npc.ObjectId].GetValueOrDefault(GoldId),
+            npc.Equipped ?? [], npc.Items ?? [], Dispositions.GetValueOrDefault(npc.ObjectId, 50), npc.Services ?? []);
+        var player = new ScenePlayerState("Nerevar", "Dark Elf", "male", "Battlemage", 3, 0.7f, 0.9f, ["Chitin Cuirass", "Iron Longsword"],
+            Bounty: 0, Factions: [new("Fighters Guild", "Journeyman")]);
         return new(GameTime, CellName, npcState, player);
     }
 
@@ -71,6 +74,24 @@ public static class SeydaNeenWorld {
         var name = Npcs.SelectMany(n => n.Items ?? []).FirstOrDefault(i => i.Id == transfer.ItemId)?.Name
             ?? (transfer.ItemId == GoldId ? "Gold" : transfer.ItemId);
         return new(true, null, name);
+    }
+
+    private static readonly Dictionary<string, int> Dispositions = new(StringComparer.OrdinalIgnoreCase);
+
+    public static ActionResultPayload ModifyDisposition(ModifyDispositionPayload change) {
+        if (FindNpc(change.NpcId) == null) {
+            return new(false, "npc not found");
+        }
+        Dispositions[change.NpcId] = Math.Clamp(Dispositions.GetValueOrDefault(change.NpcId, 50) + change.Delta, 0, 100);
+        return new(true);
+    }
+
+    public static ActionResultPayload OpenService(OpenServicePayload request) {
+        var npc = FindNpc(request.NpcId);
+        if (npc == null) {
+            return new(false, "npc not found");
+        }
+        return npc.Services?.Contains(request.Service) == true ? new(true) : new(false, $"does not offer {request.Service}");
     }
 
     public static GetPlayerInfoResponsePayload PlayerInfo =>

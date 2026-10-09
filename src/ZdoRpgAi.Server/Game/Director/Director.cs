@@ -174,7 +174,7 @@ public class Director {
         var lastEventType = events.Last().GetType().Name;
         Log.Trace("Determining strategy for last event type {EventType}", lastEventType);
 
-        if (events.Last() is StoryEvent.PlayerSpeak) {
+        if (events.Last() is StoryEvent.PlayerSpeak or StoryEvent.PlayerApproach) {
             return _simpleReactive;
         }
 

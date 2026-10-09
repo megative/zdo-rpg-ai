@@ -26,6 +26,12 @@ public class DirectorHelper {
             mp3.Mp3Bytes);
     }
 
+    public void PublishNpcThinking(string npcId) {
+        _rpc.Publish(
+            nameof(ServerToModMessageType.NpcThinking),
+            JsonExtensions.SerializeToObject(new NpcThinkingPayload(npcId), PayloadJsonContext.Default.NpcThinkingPayload));
+    }
+
     public async Task<Observers> QueryObserversAsync(string characterId, string[]? excludeIds) {
         try {
             var response = await _rpc.CallAsync(

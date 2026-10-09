@@ -100,6 +100,10 @@ public class Story : IStory {
             else if (evt is StoryEvent.NpcAction na) {
                 ids.Add(na.NpcCharacterId);
             }
+            else if (evt is StoryEvent.PlayerApproach pa) {
+                ids.Add(pa.PlayerCharacterId);
+                ids.Add(pa.NpcCharacterId);
+            }
         }
         return ids.ToArray();
     }

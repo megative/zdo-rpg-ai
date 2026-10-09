@@ -113,6 +113,25 @@ public class EmulatorSession {
             case nameof(ServerToModMessageType.TransferItem):
                 HandleTransferItem(msg);
                 break;
+            case nameof(ServerToModMessageType.NpcThinking): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.NpcThinkingPayload);
+                    Log.Info("[MOD] {NpcId}: ...", p?.NpcId ?? "?");
+                    break;
+                }
+            case nameof(ServerToModMessageType.ModifyDisposition): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.ModifyDispositionPayload);
+                    var result = p == null ? new ActionResultPayload(false, "bad request") : SeydaNeenWorld.ModifyDisposition(p);
+                    Log.Info("[MOD] Disposition of {NpcId} {Delta:+0;-0}: {Result}", p?.NpcId ?? "?", p?.Delta ?? 0, result.Error ?? "done");
+                    RespondActionResult(msg, result);
+                    break;
+                }
+            case nameof(ServerToModMessageType.OpenService): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.OpenServicePayload);
+                    var result = p == null ? new ActionResultPayload(false, "bad request") : SeydaNeenWorld.OpenService(p);
+                    Log.Info("[MOD] {NpcId} opens {Service}: {Result}", p?.NpcId ?? "?", p?.Service ?? "?", result.Error ?? "done");
+                    RespondActionResult(msg, result);
+                    break;
+                }
             case nameof(ClientToModMessageType.SayMp3File):
                 HandleSayMp3File(msg);
                 break;

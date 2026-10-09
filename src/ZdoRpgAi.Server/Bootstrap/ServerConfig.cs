@@ -25,6 +25,9 @@ public class DirectorSection {
     public string ResponseLanguage { get; set; } = "Russian";
     // Who the player character is, as NPCs could know it at a glance or from rumours
     public string PlayerBackstory { get; set; } = "";
+    // NPCs that remember the player greet them first, at most once per cooldown per NPC
+    public bool Greetings { get; set; } = true;
+    public double GreetingCooldownMinutes { get; set; } = 10;
 }
 
 public class DatabaseSection {

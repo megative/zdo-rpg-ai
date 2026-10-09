@@ -6,7 +6,7 @@ using ZdoRpgAi.Repository;
 namespace ZdoRpgAi.Server.Game.Npc;
 
 public record NpcInfo(string Id, string Name, string Race, string Sex,
-    string? ClassName = null, string? Faction = null, string? FactionRank = null);
+    string? ClassName = null, string? Faction = null, string? FactionRank = null, string? Personality = null);
 
 public class NpcRepository {
     private static readonly ILog Log = Logger.Get<NpcRepository>();
@@ -51,11 +51,14 @@ public class NpcRepository {
             return null;
         }
 
-        var info = new RawNpcInfo(npcId, payload.Name, payload.Race, payload.Sex, payload.ClassName, payload.Faction, payload.FactionRank);
+        var info = new RawNpcInfo(npcId, payload.Name, payload.Race, payload.Sex, payload.ClassName, payload.Faction, payload.FactionRank, cached?.Personality);
         _saveGameRepo.SaveNpcInfo(info);
         return ToNpcInfo(info);
     }
 
+    public void SavePersonality(NpcInfo npc, string personality) =>
+        _saveGameRepo.SaveNpcInfo(new RawNpcInfo(npc.Id, npc.Name, npc.Race, npc.Sex, npc.ClassName, npc.Faction, npc.FactionRank, personality));
+
     private static NpcInfo ToNpcInfo(RawNpcInfo raw) =>
-        new(raw.Id, raw.Name, raw.Race, raw.Sex, raw.ClassName, raw.Faction, raw.FactionRank);
+        new(raw.Id, raw.Name, raw.Race, raw.Sex, raw.ClassName, raw.Faction, raw.FactionRank, raw.Personality);
 }

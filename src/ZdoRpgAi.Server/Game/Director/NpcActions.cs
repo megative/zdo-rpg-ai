@@ -15,6 +15,8 @@ public class NpcActions {
     private static readonly ILog Log = Logger.Get<NpcActions>();
 
     private const string GoldId = "gold_001";
+    private const int MaxDispositionChange = 25;
+    public static readonly string[] Services = ["barter", "training", "travel", "spells", "repair"];
 
     private static readonly List<LlmToolParameter> ItemParameters = [
         new() { Name = "item_id", Description = $"Item id, as listed in your belongings; gold is \"{GoldId}\"" },
@@ -36,6 +38,21 @@ public class NpcActions {
         new() { Name = "stop_following", Description = "Stop following the player." },
         new() { Name = "attack_player", Description = "Attack the player. Only when they truly provoke or threaten you." },
         new() { Name = "stop_attacking", Description = "Stop attacking the player and calm down." },
+        new() {
+            Name = "change_disposition",
+            Description = "Change how much you like the player when they offend, flatter, help or cheat you. It changes your prices and willingness to help.",
+            Parameters = [
+                new() { Name = "delta", Type = "integer", Description = $"From -{MaxDispositionChange} (deeply offended) to {MaxDispositionChange} (won over); small talk is -5..5" },
+                new() { Name = "reason", Description = "A few words on why" },
+            ],
+        },
+        new() {
+            Name = "open_service",
+            Description = "Open your trade, training, travel, spell or repair window when the player asks for a service you offer.",
+            Parameters = [
+                new() { Name = "service", Description = "Which service", EnumValues = [.. Services] },
+            ],
+        },
     ];
 
     private readonly IRpcChannel _rpc;
@@ -92,6 +109,24 @@ public class NpcActions {
             case "stop_attacking":
                 return ("stops attacking the player", await CallAsync(nameof(ServerToModMessageType.NpcStopAttack),
                     new NpcStopAttackPayload(npcId), PayloadJsonContext.Default.NpcStopAttackPayload));
+            case "change_disposition": {
+                    var delta = Math.Clamp(GetInt(call.Arguments, "delta") ?? 0, -MaxDispositionChange, MaxDispositionChange);
+                    var reason = GetString(call.Arguments, "reason");
+                    var description = $"{(delta >= 0 ? "warms to" : "cools toward")} the player ({delta:+0;-0;0}{(reason == null ? "" : $", {reason}")})";
+                    if (delta == 0) {
+                        return (description, new ActionResultPayload(true));
+                    }
+                    return (description, await CallAsync(nameof(ServerToModMessageType.ModifyDisposition),
+                        new ModifyDispositionPayload(npcId, playerId, delta), PayloadJsonContext.Default.ModifyDispositionPayload));
+                }
+            case "open_service": {
+                    var service = GetString(call.Arguments, "service")?.ToLowerInvariant();
+                    if (service == null || !Services.Contains(service)) {
+                        return ("offers a service", new ActionResultPayload(false, "unknown service"));
+                    }
+                    return ($"opens the {service} window for the player", await CallAsync(nameof(ServerToModMessageType.OpenService),
+                        new OpenServicePayload(npcId, service), PayloadJsonContext.Default.OpenServicePayload));
+                }
             default:
                 Log.Warn("LLM called unknown tool {Tool}", call.Name);
                 return ($"tries to {call.Name}", new ActionResultPayload(false, "no such action"));

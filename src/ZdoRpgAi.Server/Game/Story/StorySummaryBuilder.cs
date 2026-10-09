@@ -24,6 +24,9 @@ public class StorySummaryBuilder {
             else if (evt is StoryEvent.NpcAction na) {
                 lines.Add($"[{na.GameTime}] {na.NpcCharacterId} {StoryEvent.DescribeAction(na)}");
             }
+            else if (evt is StoryEvent.PlayerApproach pa) {
+                lines.Add($"[{pa.GameTime}] {pa.PlayerCharacterId} walks up to {pa.NpcCharacterId}");
+            }
         }
 
         var request = new LlmRequest {
