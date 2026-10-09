@@ -80,6 +80,6 @@ public class Mp3SpeedAdjuster {
 }
 
 public class Mp3SpeedConfig {
-    public string FfmpegExePath { get; init; } = "ffmpeg";
-    public double CharactersPerSecond { get; init; } = 15;
+    public string FfmpegExePath { get; set; } = "ffmpeg";
+    public double CharactersPerSecond { get; set; } = 15;
 }

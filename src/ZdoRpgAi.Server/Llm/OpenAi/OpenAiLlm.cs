@@ -100,11 +100,14 @@ public class OpenAiLlm : ILlm {
     }
 
     private static string BuildSystemText(LlmRequest request) {
+        var system = string.IsNullOrEmpty(request.SystemPromptPrefix)
+            ? request.SystemPrompt
+            : $"{request.SystemPromptPrefix}\n\n{request.SystemPrompt}";
         if (request.Resources.Count == 0) {
-            return request.SystemPrompt;
+            return system;
         }
 
-        var sb = new StringBuilder(request.SystemPrompt);
+        var sb = new StringBuilder(system);
         sb.AppendLine();
         sb.AppendLine();
         sb.AppendLine("# Available Resources");

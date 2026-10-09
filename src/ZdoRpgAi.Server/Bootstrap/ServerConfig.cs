@@ -1,4 +1,5 @@
 using ZdoRpgAi.Core;
+using ZdoRpgAi.Server.Llm.Claude;
 using ZdoRpgAi.Server.Llm.Gemini;
 using ZdoRpgAi.Server.Llm.OpenAi;
 using ZdoRpgAi.Server.SpeechToText.Deepgram;
@@ -69,4 +70,5 @@ public class LlmProviderSection {
     public required string Provider { get; set; }
     public GeminiConfig? Gemini { get; set; }
     public OpenAiConfig? OpenAi { get; set; }
+    public ClaudeConfig? Claude { get; set; }
 }

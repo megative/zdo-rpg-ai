@@ -257,6 +257,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         }
 
         var request = new LlmRequest {
+            SystemPromptPrefix = BuildRules(),
             SystemPrompt = systemPrompt,
             Messages = messages,
             Tools = NpcActions.Tools,
@@ -348,16 +349,20 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             lines.AddRange(playerLines);
         }
 
-        lines.Add("");
-        lines.Add($"Stay in character. Speak briefly and naturally, as in a real conversation. Never mention being an AI. Always respond in the {_config.ResponseLanguage} language.");
-        lines.Add("You will be told what the people around you say and do. Reply only with your own speech: no narration, no name prefix, no stage directions.");
-        lines.Add("Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.");
-        lines.Add("When the player walks up to you, greet them in one short line that fits what you remember of them.");
-        lines.Add("Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.");
-        lines.Add("You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.");
-        lines.Add($"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.");
         return string.Join("\n", lines);
     }
+
+    // The same for every NPC and every turn, so providers can cache it
+    private string BuildRules() => string.Join("\n", [
+        "You play a character of The Elder Scrolls III: Morrowind, described below.",
+        $"Stay in character. Speak briefly and naturally, as in a real conversation. Never mention being an AI. Always respond in the {_config.ResponseLanguage} language.",
+        "You will be told what the people around you say and do. Reply only with your own speech: no narration, no name prefix, no stage directions.",
+        "Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.",
+        "When the player walks up to you, greet them in one short line that fits what you remember of them.",
+        "Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.",
+        "You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.",
+        $"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.",
+    ]);
 
     // "a male Dark Elf, Guard, Knight of the Imperial Legion, level 12"
     internal static string DescribeNpc(NpcInfo npc, SceneNpcState? state) {

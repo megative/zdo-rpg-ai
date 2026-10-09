@@ -4,6 +4,7 @@ using ZdoRpgAi.Server.App;
 using ZdoRpgAi.Server.Http;
 using ZdoRpgAi.Server.Llm;
 using ZdoRpgAi.Server.Llm.Dummy;
+using ZdoRpgAi.Server.Llm.Claude;
 using ZdoRpgAi.Server.Llm.Gemini;
 using ZdoRpgAi.Server.Llm.OpenAi;
 using ZdoRpgAi.Server.Lua;
@@ -75,6 +76,8 @@ public static class ServerBootstrap {
                 ?? throw new InvalidOperationException("llm.gemini config is required when provider is 'gemini'")),
             "openai" => new OpenAiLlm(config.OpenAi
                 ?? throw new InvalidOperationException("llm.openAi config is required when provider is 'openai'")),
+            "claude" => new ClaudeLlm(config.Claude
+                ?? throw new InvalidOperationException("llm.claude config is required when provider is 'claude'")),
             _ => throw new InvalidOperationException($"Unknown LLM provider: {config.Provider}"),
         };
     }
