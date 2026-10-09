@@ -32,6 +32,7 @@ public enum ServerToModMessageType {
     TaskUpdate,
     GetTopics,
     GetTopicLines,
+    OpenDialogue,
 }
 
 public record SpeechRecognitionInProgressPayload(string PlayerId, string Text);
@@ -54,8 +55,10 @@ public record SceneNpcState(int Level, float HealthRatio, int Gold, string[] Equ
 public record ScenePlayerState(
     string Name, string Race, string Sex, string? ClassName, int Level,
     float HealthRatio, float FatigueRatio, string[] Equipped,
-    int Bounty = 0, SceneFaction[]? Factions = null);
+    int Bounty = 0, SceneFaction[]? Factions = null, SceneQuest[]? Quests = null);
 public record SceneFaction(string Name, string? Rank);
+// An open quest from the player's journal and its latest entry
+public record SceneQuest(string Name, string? Entry);
 public record SceneItem(string Id, string Name, int Count);
 public record SpawnOnGroundInFrontOfCharacterPayload(string NpcId, string ItemId, int Count = 1);
 public record PlaySound3dOnCharacterPayload(string NpcId, string Sound);
@@ -78,6 +81,8 @@ public record TransferItemPayload(string FromCharacterId, string ToCharacterId, 
 public record ModifyDispositionPayload(string NpcId, string PlayerId, int Delta);
 // Service: barter, training, travel, spells or repair
 public record OpenServicePayload(string NpcId, string Service);
+// Opens the game's own dialogue with the NPC once it has finished speaking
+public record OpenDialoguePayload(string NpcId);
 
 // Reply to an action: Error explains a refusal, ItemName is the display name of a transferred item
 public record ActionResultPayload(bool Success, string? Error = null, string? ItemName = null);

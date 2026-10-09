@@ -30,6 +30,7 @@ namespace ZdoRpgAi.Protocol.Messages;
 [JsonSerializable(typeof(TransferItemPayload))]
 [JsonSerializable(typeof(ModifyDispositionPayload))]
 [JsonSerializable(typeof(OpenServicePayload))]
+[JsonSerializable(typeof(OpenDialoguePayload))]
 [JsonSerializable(typeof(ActionResultPayload))]
 // Mod → Client
 [JsonSerializable(typeof(StartSessionAckPayload))]

@@ -36,7 +36,8 @@ public static class SeydaNeenWorld {
         var npcState = npc == null ? null : new SceneNpcState(npc.Level, 1f, Inventories[npc.ObjectId].GetValueOrDefault(GoldId),
             npc.Equipped ?? [], npc.Items ?? [], Dispositions.GetValueOrDefault(npc.ObjectId, 50), npc.Services ?? []);
         var player = new ScenePlayerState("Nerevar", "Dark Elf", "male", "Battlemage", 3, 0.7f, 0.9f, ["Chitin Cuirass", "Iron Longsword"],
-            Bounty: 0, Factions: [new("Fighters Guild", "Journeyman")]);
+            Bounty: 0, Factions: [new("Fighters Guild", "Journeyman")],
+            Quests: [new("Report to Caius Cosades", "I've been told to go to Balmora and report to a man named Caius Cosades.")]);
         return new(GameTime, CellName, npcState, player);
     }
 

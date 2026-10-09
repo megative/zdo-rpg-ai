@@ -142,6 +142,12 @@ public class EmulatorSession {
                     RespondActionResult(msg, result);
                     break;
                 }
+            case nameof(ServerToModMessageType.OpenDialogue): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.OpenDialoguePayload);
+                    Log.Info("[MOD] {NpcId} opens the dialogue window", p?.NpcId ?? "?");
+                    RespondActionResult(msg, new ActionResultPayload(p != null));
+                    break;
+                }
             case nameof(ServerToModMessageType.OpenService): {
                     var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.OpenServicePayload);
                     var result = p == null ? new ActionResultPayload(false, "bad request") : SeydaNeenWorld.OpenService(p);

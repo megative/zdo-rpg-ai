@@ -341,6 +341,10 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             if (player.Bounty > 0) {
                 playerLines.Add($"There is a bounty of {player.Bounty} gold on their head.");
             }
+            if (player.Quests is { Length: > 0 }) {
+                playerLines.Add("Their open quests, from their journal (what they are busy with):");
+                playerLines.AddRange(player.Quests.Select(q => string.IsNullOrEmpty(q.Entry) ? $"- {q.Name}" : $"- {q.Name}: {Shorten(q.Entry, 240)}"));
+            }
             playerLines.Add($"Their name is {player.Name}, but you only know it if they have introduced themselves.");
         }
         if (!string.IsNullOrWhiteSpace(_config.PlayerBackstory)) {
@@ -363,6 +367,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         "Don't take the player at their word, they may lie. Don't invent characters, items, locations or quests.",
         "When the player walks up to you, greet them in one short line that fits what you remember of them.",
         "Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.",
+        "Quest orders, quest items and faction matters belong to the game's own dialogue: when the player needs them, say a few words and call open_dialogue. Never hand out quest items or pretend a quest step happened.",
         "You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.",
         $"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.",
     ]);
@@ -381,6 +386,9 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         }
         return string.Join(", ", parts);
     }
+
+    private static string Shorten(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength].TrimEnd() + "...";
 
     private static string DescribeDisposition(int disposition) => disposition switch {
         < 20 => "hostile",

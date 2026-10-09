@@ -66,6 +66,11 @@ public class NpcActions {
             Parameters = [new() { Name = "task_id", Type = "integer", Description = "Number of the task" }],
         },
         new() {
+            Name = "open_dialogue",
+            Description = "Open the game's own dialogue with you, after your words. Use it when the player needs what only that dialogue gives: "
+                + "quest orders and quest items, reporting on a quest, joining or rising in a faction, or what to do next in their quest.",
+        },
+        new() {
             Name = "open_service",
             Description = "Open your trade, training, travel, spell or repair window when the player asks for a service you offer.",
             Parameters = [
@@ -171,6 +176,9 @@ public class NpcActions {
                     PublishTaskUpdate(npcId, task.Description, status);
                     return ($"{verb} task #{task.Id}: {task.Description}", new ActionResultPayload(true));
                 }
+            case "open_dialogue":
+                return ("opens the dialogue with the player", await CallAsync(nameof(ServerToModMessageType.OpenDialogue),
+                    new OpenDialoguePayload(npcId), PayloadJsonContext.Default.OpenDialoguePayload));
             case "open_service": {
                     var service = GetString(call.Arguments, "service")?.ToLowerInvariant();
                     if (service == null || !Services.Contains(service)) {
