@@ -47,7 +47,7 @@ public static class SeydaNeenWorld {
 
     private static Dictionary<string, Dictionary<string, int>> BuildInventories() {
         var inventories = new Dictionary<string, Dictionary<string, int>>(StringComparer.OrdinalIgnoreCase) {
-            [PlayerId] = new(StringComparer.OrdinalIgnoreCase) { [GoldId] = 100 },
+            [PlayerId] = new(StringComparer.OrdinalIgnoreCase) { [GoldId] = 100, ["ingred_scamp_skin_01"] = 2 },
         };
         foreach (var npc in Npcs) {
             var items = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { [GoldId] = npc.Gold };

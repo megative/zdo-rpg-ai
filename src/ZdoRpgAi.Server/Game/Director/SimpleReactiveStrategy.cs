@@ -1,6 +1,7 @@
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
 using ZdoRpgAi.Protocol.Rpc;
+using ZdoRpgAi.Repository;
 using ZdoRpgAi.Server.Bootstrap;
 using ZdoRpgAi.Server.Game.Npc;
 using ZdoRpgAi.Server.Game.Story;
@@ -24,7 +25,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
 
     public SimpleReactiveStrategy(
         ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
-        DirectorHelper directorHelper, DirectorSection config, RumorMill rumors) {
+        DirectorHelper directorHelper, DirectorSection config, RumorMill rumors, ISaveGameRepository saveGameRepo) {
         _mainLlm = mainLlm;
         _simpleLlm = simpleLlm;
         _story = story;
@@ -32,7 +33,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _rpc = rpc;
         _directorHelper = directorHelper;
         _config = config;
-        _actions = new NpcActions(rpc);
+        _actions = new NpcActions(rpc, saveGameRepo);
         _personalityWriter = new NpcPersonalityWriter(simpleLlm);
         _rumors = rumors;
     }
@@ -297,6 +298,12 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             lines.AddRange(rumors.Select(r => $"- {r}"));
         }
 
+        var tasks = _actions.GetOpenTasks(npc.Id);
+        if (tasks.Count > 0) {
+            lines.Add("Tasks you gave the player that are still open:");
+            lines.AddRange(tasks.Select(t => $"- #{t.Id}: {t.Description}{(t.Reward == null ? "" : $" (reward: {t.Reward})")}"));
+        }
+
         var playerLines = new List<string>();
         if (scene?.Player is { } player) {
             var className = string.IsNullOrEmpty(player.ClassName) ? "" : $", {player.ClassName}";
@@ -335,6 +342,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         lines.Add("When the player walks up to you, greet them in one short line that fits what you remember of them.");
         lines.Add("Game actions happen only through your tools: if you agree to give, take, follow or fight, call the tool in the same reply as your words. Saying it is not enough.");
         lines.Add("You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.");
+        lines.Add($"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.");
         return string.Join("\n", lines);
     }
 

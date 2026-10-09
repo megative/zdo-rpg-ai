@@ -47,7 +47,7 @@ public class GameRunner {
         var speedAdjuster = new Mp3SpeedAdjuster(mp3SpeedConfig);
         var npcSpeechGenerator = new NpcSpeechGenerator(tts, speedAdjuster);
         var rumors = new RumorMill(saveGameRepo, _npcRepo);
-        _director = new Director.Director(story, directorHelper, npcSpeechGenerator, rpc, mainLlm, simpleLlm, _npcRepo, directorConfig, rumors);
+        _director = new Director.Director(story, directorHelper, npcSpeechGenerator, rpc, mainLlm, simpleLlm, _npcRepo, directorConfig, rumors, saveGameRepo);
         _banter = new Director.BanterScheduler(_director, directorHelper, _npcRepo, saveGameRepo, rumors, _storyComposer, mainLlm, directorConfig);
 
         _playerHandler.PlayerSpoke += _storyComposer.OnPlayerSpeak;

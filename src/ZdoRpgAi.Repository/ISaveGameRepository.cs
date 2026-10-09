@@ -14,9 +14,16 @@ public interface ISaveGameRepository : IDisposable {
     void ArchiveStoryEvents(long[] eventIds, long summaryId);
     void ArchiveStoryEventSummaries(long[] summaryIds, long newSummaryId);
     RawNpcInfo? GetNpcInfo(string npcId);
+    long AddNpcTask(string npcId, string description, string? reward, string gameTime);
+    List<RawNpcTask> GetOpenNpcTasks(string npcId);
+    // Closes an open task of that NPC; false if there is no such open task
+    bool CloseNpcTask(long taskId, string npcId, NpcTaskStatus status, string gameTime);
     void SaveNpcInfo(RawNpcInfo info);
 }
 
+public enum NpcTaskStatus { Open, Done, Cancelled }
+
+public record RawNpcTask(long Id, string NpcId, string Description, string? Reward);
 public record RawStoryEvent(long Id, string GameTime, string RealTime, string Type, string DataJson);
 public record RawStoryEventSummary(long Id, string Summary, string RealTime);
 public record RawNpcInfo(string Id, string Name, string Race, string Sex,

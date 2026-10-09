@@ -238,6 +238,55 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
+    public long AddNpcTask(string npcId, string description, string? reward, string gameTime) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO npc_task (npcId, description, reward, status, createdGameTime)
+                VALUES ($npcId, $description, $reward, $status, $gameTime)
+                RETURNING id
+                """;
+            cmd.Parameters.AddWithValue("$npcId", npcId);
+            cmd.Parameters.AddWithValue("$description", description);
+            cmd.Parameters.AddWithValue("$reward", (object?)reward ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("$status", nameof(NpcTaskStatus.Open));
+            cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            return (long)cmd.ExecuteScalar()!;
+        }
+    }
+
+    public List<RawNpcTask> GetOpenNpcTasks(string npcId) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT id, description, reward FROM npc_task WHERE npcId = $npcId AND status = $status ORDER BY id";
+            cmd.Parameters.AddWithValue("$npcId", npcId);
+            cmd.Parameters.AddWithValue("$status", nameof(NpcTaskStatus.Open));
+
+            var results = new List<RawNpcTask>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                results.Add(new RawNpcTask(reader.GetInt64(0), npcId, reader.GetString(1), reader.IsDBNull(2) ? null : reader.GetString(2)));
+            }
+            return results;
+        }
+    }
+
+    public bool CloseNpcTask(long taskId, string npcId, NpcTaskStatus status, string gameTime) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                UPDATE npc_task SET status = $status, closedGameTime = $gameTime
+                WHERE id = $id AND npcId = $npcId AND status = $open
+                """;
+            cmd.Parameters.AddWithValue("$status", status.ToString());
+            cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            cmd.Parameters.AddWithValue("$id", taskId);
+            cmd.Parameters.AddWithValue("$npcId", npcId);
+            cmd.Parameters.AddWithValue("$open", nameof(NpcTaskStatus.Open));
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
     public RawNpcInfo? GetNpcInfo(string npcId) {
         string? json;
         lock (_lock) {

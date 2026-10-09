@@ -28,6 +28,7 @@ public enum ServerToModMessageType {
     ModifyDisposition,
     OpenService,
     NpcThinking,
+    TaskUpdate,
 }
 
 public record SpeechRecognitionInProgressPayload(string PlayerId, string Text);
@@ -60,6 +61,8 @@ public record NpcStopFollowCharacterPayload(string NpcId);
 public record NpcAttackPayload(string NpcId, string TargetCharacterId);
 public record NpcStopAttackPayload(string NpcId);
 public record ShowMessageBoxPayload(string Message);
+// A task an NPC gave the player changed: Status is Open (new), Done or Cancelled
+public record TaskUpdatePayload(string NpcId, string Description, string Status);
 // The NPC is about to answer: the mod shows "Name: ..." until the line arrives
 public record NpcThinkingPayload(string NpcId);
 public record TransferItemPayload(string FromCharacterId, string ToCharacterId, string ItemId, int Count);

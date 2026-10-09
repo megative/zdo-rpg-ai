@@ -113,6 +113,11 @@ public class EmulatorSession {
             case nameof(ServerToModMessageType.TransferItem):
                 HandleTransferItem(msg);
                 break;
+            case nameof(ServerToModMessageType.TaskUpdate): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.TaskUpdatePayload);
+                    Log.Info("[MOD] Task {Status} from {NpcId}: {Description}", p?.Status ?? "?", p?.NpcId ?? "?", p?.Description ?? "");
+                    break;
+                }
             case nameof(ServerToModMessageType.NpcThinking): {
                     var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.NpcThinkingPayload);
                     Log.Info("[MOD] {NpcId}: ...", p?.NpcId ?? "?");

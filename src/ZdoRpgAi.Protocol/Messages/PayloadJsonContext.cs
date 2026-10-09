@@ -23,6 +23,7 @@ namespace ZdoRpgAi.Protocol.Messages;
 [JsonSerializable(typeof(NpcStopAttackPayload))]
 [JsonSerializable(typeof(ShowMessageBoxPayload))]
 [JsonSerializable(typeof(NpcThinkingPayload))]
+[JsonSerializable(typeof(TaskUpdatePayload))]
 [JsonSerializable(typeof(TransferItemPayload))]
 [JsonSerializable(typeof(ModifyDispositionPayload))]
 [JsonSerializable(typeof(OpenServicePayload))]

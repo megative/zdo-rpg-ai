@@ -3,6 +3,7 @@ using System.Text.Json.Serialization.Metadata;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
 using ZdoRpgAi.Protocol.Rpc;
+using ZdoRpgAi.Repository;
 using ZdoRpgAi.Server.Game.Story;
 using ZdoRpgAi.Server.Llm;
 
@@ -47,6 +48,24 @@ public class NpcActions {
             ],
         },
         new() {
+            Name = "give_task",
+            Description = "Ask the player to do something concrete for you: fetch an item, deliver a message, deal with someone. Only promise a reward you can pay.",
+            Parameters = [
+                new() { Name = "description", Description = "The task in a few words, as the player should remember it" },
+                new() { Name = "reward", Description = "What you promise in return, e.g. \"50 gold\"", Required = false },
+            ],
+        },
+        new() {
+            Name = "complete_task",
+            Description = "Mark a task you gave as done once the player really did it. Take the items they bring with take_item first, then pay the reward with give_item.",
+            Parameters = [new() { Name = "task_id", Type = "integer", Description = "Number of the task" }],
+        },
+        new() {
+            Name = "cancel_task",
+            Description = "Call off a task you gave, e.g. when it no longer matters or the player refuses it.",
+            Parameters = [new() { Name = "task_id", Type = "integer", Description = "Number of the task" }],
+        },
+        new() {
             Name = "open_service",
             Description = "Open your trade, training, travel, spell or repair window when the player asks for a service you offer.",
             Parameters = [
@@ -56,17 +75,26 @@ public class NpcActions {
     ];
 
     private readonly IRpcChannel _rpc;
+    private readonly ISaveGameRepository _saveGameRepo;
 
-    public NpcActions(IRpcChannel rpc) {
+    public NpcActions(IRpcChannel rpc, ISaveGameRepository saveGameRepo) {
         _rpc = rpc;
+        _saveGameRepo = saveGameRepo;
     }
+
+    public List<RawNpcTask> GetOpenTasks(string npcId) => _saveGameRepo.GetOpenNpcTasks(npcId);
 
     // Runs the tool calls in order. Each becomes a story event, so the NPC remembers what it did
     // and whether the game let it happen.
     public async Task<List<StoryEvent>> ExecuteAsync(string npcId, string playerId, string gameTime, string? cell, IReadOnlyList<LlmToolCall> calls) {
         var events = new List<StoryEvent>();
+        var anyFailed = false;
         foreach (var call in calls) {
-            var (description, result) = await ExecuteAsync(npcId, playerId, call);
+            // Completing a task right after, say, take_item failed would reward work not done
+            var (description, result) = call.Name == "complete_task" && anyFailed
+                ? ("marks a task as done", new ActionResultPayload(false, "an earlier action failed"))
+                : await ExecuteAsync(npcId, playerId, gameTime, call);
+            anyFailed |= !result.Success;
             var error = result.Success ? null : result.Error ?? "failed";
             Log.Info("NPC {NpcId} {Action}: {Result}", npcId, description, error ?? "done");
             events.Add(StoryEvent.Create(new StoryEvent.NpcAction {
@@ -80,7 +108,7 @@ public class NpcActions {
         return events;
     }
 
-    private async Task<(string Description, ActionResultPayload Result)> ExecuteAsync(string npcId, string playerId, LlmToolCall call) {
+    private async Task<(string Description, ActionResultPayload Result)> ExecuteAsync(string npcId, string playerId, string gameTime, LlmToolCall call) {
         switch (call.Name) {
             case "give_item":
             case "take_item": {
@@ -120,6 +148,29 @@ public class NpcActions {
                     return (description, await CallAsync(nameof(ServerToModMessageType.ModifyDisposition),
                         new ModifyDispositionPayload(npcId, playerId, delta), PayloadJsonContext.Default.ModifyDispositionPayload));
                 }
+            case "give_task": {
+                    var task = GetString(call.Arguments, "description");
+                    if (task == null) {
+                        return ("gives the player a task", new ActionResultPayload(false, "no description"));
+                    }
+                    var reward = GetString(call.Arguments, "reward");
+                    var taskId = _saveGameRepo.AddNpcTask(npcId, task, reward, gameTime);
+                    PublishTaskUpdate(npcId, task, NpcTaskStatus.Open);
+                    return ($"gives the player task #{taskId}: {task}{(reward == null ? "" : $" (reward: {reward})")}", new ActionResultPayload(true));
+                }
+            case "complete_task":
+            case "cancel_task": {
+                    var done = call.Name == "complete_task";
+                    var verb = done ? "marks as done" : "calls off";
+                    var taskId = GetInt(call.Arguments, "task_id");
+                    var task = _saveGameRepo.GetOpenNpcTasks(npcId).FirstOrDefault(t => t.Id == taskId);
+                    var status = done ? NpcTaskStatus.Done : NpcTaskStatus.Cancelled;
+                    if (task == null || !_saveGameRepo.CloseNpcTask(task.Id, npcId, status, gameTime)) {
+                        return ($"{verb} task #{taskId}", new ActionResultPayload(false, "no such open task"));
+                    }
+                    PublishTaskUpdate(npcId, task.Description, status);
+                    return ($"{verb} task #{task.Id}: {task.Description}", new ActionResultPayload(true));
+                }
             case "open_service": {
                     var service = GetString(call.Arguments, "service")?.ToLowerInvariant();
                     if (service == null || !Services.Contains(service)) {
@@ -132,6 +183,11 @@ public class NpcActions {
                 Log.Warn("LLM called unknown tool {Tool}", call.Name);
                 return ($"tries to {call.Name}", new ActionResultPayload(false, "no such action"));
         }
+    }
+
+    private void PublishTaskUpdate(string npcId, string description, NpcTaskStatus status) {
+        _rpc.Publish(nameof(ServerToModMessageType.TaskUpdate), JsonExtensions.SerializeToObject(
+            new TaskUpdatePayload(npcId, description, status.ToString()), PayloadJsonContext.Default.TaskUpdatePayload));
     }
 
     private async Task<ActionResultPayload> CallAsync<T>(string type, T payload, JsonTypeInfo<T> typeInfo) {
