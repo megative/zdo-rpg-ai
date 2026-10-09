@@ -101,7 +101,7 @@ public class Director {
     private async Task RegisterAndPublishAsync(List<StoryEvent> events) {
         Log.Trace("Registering and publishing {Count} events", events.Count);
         var observersCache = new Dictionary<string, string[]>();
-        StoryEvent.NpcSpeak? npcSpeakEvent = null;
+        var speeches = new List<StoryEvent.NpcSpeak>();
 
         foreach (var e in events) {
             var (mainCharId, targetCharId) = e switch {
@@ -125,34 +125,56 @@ public class Director {
 
             if (e is StoryEvent.NpcSpeak npcSpeak) {
                 Log.Info("NPC {NpcId} speaks: {Text}", npcSpeak.NpcCharacterId, npcSpeak.Text);
-                npcSpeakEvent = npcSpeak;
+                speeches.Add(npcSpeak);
             }
         }
 
-        if (npcSpeakEvent != null) {
-            var npc = await _npcRepo.GetNpcInfoAsync(npcSpeakEvent.NpcCharacterId);
-            if (npc != null) {
-                var iterationBeforeGeneration = PlayerInterruptionIteration;
-                Log.Trace("Generating speech for NPC {NpcId}", npcSpeakEvent.NpcCharacterId);
-                var mp3 = await _npcSpeechGenerator.GenerateAsync(npc, npcSpeakEvent.Text);
-                if (PlayerInterruptionIteration == iterationBeforeGeneration && mp3 != null) {
-                    Log.Trace("Publishing MP3 for NPC {NpcId}", npcSpeakEvent.NpcCharacterId);
-                    _directorHelper.PublishNpcSpeaksMp3(npcSpeakEvent.NpcCharacterId, npcSpeakEvent.Text, mp3);
-
-                    var durationMs = (int)((Mp3Duration.Estimate(mp3.Mp3Bytes) ?? 0) * 1000);
-                    if (durationMs > 0) {
-                        Log.Trace("Waiting {DurationMs}ms for speech playback", durationMs);
-                        await WaitUnlessInterruptedAsync(durationMs, iterationBeforeGeneration);
-                    }
-                }
-                else if (PlayerInterruptionIteration != iterationBeforeGeneration) {
-                    Log.Trace("Speech generation interrupted by player for NPC {NpcId}", npcSpeakEvent.NpcCharacterId);
-                }
-            }
-            else {
-                Log.Warn($"Cannot get NPC info id={npcSpeakEvent.NpcCharacterId}");
+        foreach (var speech in speeches) {
+            if (!await SpeakAsync(speech)) {
+                break;
             }
         }
+    }
+
+    // Voices a line sentence by sentence: the next part is synthesized while the previous one plays,
+    // so the NPC starts talking as soon as the first sentence is ready. Returns false when the
+    // player interrupted.
+    private async Task<bool> SpeakAsync(StoryEvent.NpcSpeak speech) {
+        var npc = await _npcRepo.GetNpcInfoAsync(speech.NpcCharacterId);
+        if (npc == null) {
+            Log.Warn("Cannot get NPC info id={NpcId}", speech.NpcCharacterId);
+            return true;
+        }
+
+        var iteration = PlayerInterruptionIteration;
+        var chunks = SpeechChunks.Split(speech.Text);
+        Log.Trace("Generating speech for NPC {NpcId} in {Count} parts", npc.Id, chunks.Count);
+
+        var next = _npcSpeechGenerator.GenerateAsync(npc, chunks[0]);
+        for (var i = 0; i < chunks.Count; i++) {
+            var mp3 = await next;
+            if (i + 1 < chunks.Count) {
+                next = _npcSpeechGenerator.GenerateAsync(npc, chunks[i + 1]);
+            }
+
+            if (PlayerInterruptionIteration != iteration) {
+                Log.Trace("Speech interrupted by player for NPC {NpcId}", npc.Id);
+                return false;
+            }
+            if (mp3 == null) {
+                continue;
+            }
+
+            Log.Trace("Publishing MP3 part {Part}/{Count} for NPC {NpcId}", i + 1, chunks.Count, npc.Id);
+            _directorHelper.PublishNpcSpeaksMp3(npc.Id, chunks[i], mp3);
+
+            // A little slack, so the next part never cuts off the tail of this one
+            var durationMs = (int)((Mp3Duration.Estimate(mp3.Mp3Bytes) ?? 0) * 1000);
+            if (durationMs > 0) {
+                await WaitUnlessInterruptedAsync(durationMs + 150, iteration);
+            }
+        }
+        return PlayerInterruptionIteration == iteration;
     }
 
     private async Task WaitUnlessInterruptedAsync(int durationMs, int expectedIteration) {
