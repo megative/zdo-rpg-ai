@@ -6,7 +6,8 @@ public enum ServerToClientMessageType {
     NpcSpeaksMp3,
 }
 
-public record NpcSpeaksMp3Payload(string NpcId, string Text, double DurationSec);
+// TargetId is who the NPC talks to (another NPC in banter), null for the player
+public record NpcSpeaksMp3Payload(string NpcId, string Text, double DurationSec, string? TargetId = null);
 
 // Server → Mod
 
@@ -29,6 +30,8 @@ public enum ServerToModMessageType {
     OpenService,
     NpcThinking,
     TaskUpdate,
+    GetTopics,
+    GetTopicLines,
 }
 
 public record SpeechRecognitionInProgressPayload(string PlayerId, string Text);
@@ -61,6 +64,12 @@ public record NpcStopFollowCharacterPayload(string NpcId);
 public record NpcAttackPayload(string NpcId, string TargetCharacterId);
 public record NpcStopAttackPayload(string NpcId);
 public record ShowMessageBoxPayload(string Message);
+// The game's dialogue topics (ids), and the lines an NPC has for some of them
+public record GetTopicsResponsePayload(string[] Topics);
+public record GetTopicLinesRequestPayload(string NpcId, string[] Topics, int Limit);
+public record GetTopicLinesResponsePayload(TopicLines[] Topics);
+public record TopicLines(string Topic, string[] Lines);
+
 // A task an NPC gave the player changed: Status is Open (new), Done or Cancelled
 public record TaskUpdatePayload(string NpcId, string Description, string Status);
 // The NPC is about to answer: the mod shows "Name: ..." until the line arrives

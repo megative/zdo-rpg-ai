@@ -16,12 +16,12 @@ public class DirectorHelper {
         _rpc = rpc;
     }
 
-    public void PublishNpcSpeaksMp3(string npcId, string text, ITextToSpeechOutput mp3) {
+    public void PublishNpcSpeaksMp3(string npcId, string text, ITextToSpeechOutput mp3, string? targetId) {
         var duration = Mp3Duration.Estimate(mp3.Mp3Bytes) ?? 0;
         _rpc.Publish(
             nameof(ServerToClientMessageType.NpcSpeaksMp3),
             JsonExtensions.SerializeToObject(
-                new NpcSpeaksMp3Payload(npcId, text, duration),
+                new NpcSpeaksMp3Payload(npcId, text, duration, targetId),
                 PayloadJsonContext.Default.NpcSpeaksMp3Payload),
             mp3.Mp3Bytes);
     }

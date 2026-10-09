@@ -94,6 +94,17 @@ public static class SeydaNeenWorld {
         return npc.Services?.Contains(request.Service) == true ? new(true) : new(false, $"does not offer {request.Service}");
     }
 
+    private static readonly Dictionary<string, string[]> Topics = new() {
+        ["Seyda Neen"] = ["A small port village on the Bitter Coast. The Census and Excise Office is by the docks."],
+        ["latest rumors"] = ["They say a smuggler's den is hidden somewhere along the Bitter Coast."],
+        ["Balmora"] = ["Balmora is to the north-east. Take the silt strider, it's quicker than walking."],
+    };
+
+    public static string[] TopicIds => [.. Topics.Keys];
+
+    public static TopicLines[] GetTopicLines(string[] topics, int limit) =>
+        topics.Where(Topics.ContainsKey).Select(t => new TopicLines(t, Topics[t].Take(limit).ToArray())).ToArray();
+
     public static GetPlayerInfoResponsePayload PlayerInfo =>
         new(PlayerId, "Player", "Dark Elf", "Male");
 

@@ -6,7 +6,7 @@ public enum ClientToModMessageType {
     SayMp3File,
 }
 
-public record SayMp3FilePayload(string NpcId, string Mp3Name, string Text, double? DurationSec = null);
+public record SayMp3FilePayload(string NpcId, string Mp3Name, string Text, double? DurationSec = null, string? TargetId = null);
 
 // Mod → Client
 

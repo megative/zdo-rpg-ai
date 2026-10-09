@@ -113,6 +113,18 @@ public class EmulatorSession {
             case nameof(ServerToModMessageType.TransferItem):
                 HandleTransferItem(msg);
                 break;
+            case nameof(ServerToModMessageType.GetTopics):
+                _rpc.Respond(msg.Type, msg.Id, JsonExtensions.SerializeToObject(
+                    new GetTopicsResponsePayload(SeydaNeenWorld.TopicIds), PayloadJsonContext.Default.GetTopicsResponsePayload));
+                break;
+            case nameof(ServerToModMessageType.GetTopicLines): {
+                    var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.GetTopicLinesRequestPayload);
+                    var lines = p == null ? [] : SeydaNeenWorld.GetTopicLines(p.Topics, p.Limit);
+                    Log.Info("[MOD] Topic lines for {NpcId}: {Topics}", p?.NpcId ?? "?", string.Join(", ", lines.Select(l => l.Topic)));
+                    _rpc.Respond(msg.Type, msg.Id, JsonExtensions.SerializeToObject(
+                        new GetTopicLinesResponsePayload(lines), PayloadJsonContext.Default.GetTopicLinesResponsePayload));
+                    break;
+                }
             case nameof(ServerToModMessageType.TaskUpdate): {
                     var p = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.TaskUpdatePayload);
                     Log.Info("[MOD] Task {Status} from {NpcId}: {Description}", p?.Status ?? "?", p?.NpcId ?? "?", p?.Description ?? "");

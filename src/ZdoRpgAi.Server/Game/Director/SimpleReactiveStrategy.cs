@@ -22,6 +22,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private readonly NpcActions _actions;
     private readonly NpcPersonalityWriter _personalityWriter;
     private readonly RumorMill _rumors;
+    private readonly LoreLibrary _lore;
 
     public SimpleReactiveStrategy(
         ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
@@ -36,6 +37,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _actions = new NpcActions(rpc, saveGameRepo);
         _personalityWriter = new NpcPersonalityWriter(simpleLlm);
         _rumors = rumors;
+        _lore = new LoreLibrary(rpc);
     }
 
     public async Task<List<StoryEvent>> ProcessStoryEventsAsync(List<StoryEvent> events) {
@@ -57,10 +59,15 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _directorHelper.PublishNpcThinking(npcId);
 
         try {
-            // Ask the game for the current scene while NPC info and history load
+            // Ask the game for the current scene, and for its own dialogue on whatever the player
+            // mentioned, while NPC info and history load
             var sceneTask = playerId != null
                 ? _directorHelper.QuerySceneContextAsync(npcId, playerId)
                 : Task.FromResult<GetSceneContextResponsePayload?>(null);
+            var playerText = events.OfType<StoryEvent.PlayerSpeak>().LastOrDefault()?.Text;
+            var loreTask = playerText != null
+                ? _lore.RecallAsync(npcId, playerText)
+                : Task.FromResult<List<TopicLines>>([]);
 
             var npcInfo = await _npcRepo.GetNpcInfoAsync(npcId);
             if (npcInfo == null) {
@@ -83,7 +90,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 npcInfo = npcInfo with { Personality = personality };
             }
             var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName);
-            var response = await GenerateNpcResponseAsync(npcInfo, scene, rumors, history, summaries);
+            var lore = await loreTask;
+            var response = await GenerateNpcResponseAsync(npcInfo, scene, rumors, lore, history, summaries);
             var text = response.Text?.Trim();
             var calls = response.ToolCalls ?? [];
             if (string.IsNullOrEmpty(text) && calls.Count == 0) {
@@ -219,14 +227,14 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     }
 
     private async Task<LlmResponse> GenerateNpcResponseAsync(
-        NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors,
+        NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors, List<TopicLines> lore,
         List<StoryEvent> history, List<StoryEventSummary> summaries) {
         Log.Trace("Generating response for NPC {NpcName} with {HistoryCount} history events and {SummaryCount} summaries",
             npc.Name, history.Count, summaries.Count);
 
         var names = await ResolveNamesAsync(npc, history);
         var contextBlock = BuildContextBlock(summaries, history, names);
-        var systemPrompt = BuildSystemPrompt(npc, scene, rumors);
+        var systemPrompt = BuildSystemPrompt(npc, scene, rumors, lore);
 
         var messages = new List<LlmMessage>();
 
@@ -261,7 +269,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return response;
     }
 
-    private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors) {
+    private string BuildSystemPrompt(NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors, List<TopicLines> lore) {
         var lines = new List<string> { $"You are {npc.Name}, {DescribeNpc(npc, scene?.Npc)}, living in Morrowind." };
         if (!string.IsNullOrEmpty(npc.Personality)) {
             lines.Add(npc.Personality);
@@ -296,6 +304,11 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         if (rumors.Count > 0) {
             lines.Add($"Rumors you've heard around {RumorMill.TownOf(scene?.CellName)}:");
             lines.AddRange(rumors.Select(r => $"- {r}"));
+        }
+
+        if (lore.Count > 0) {
+            lines.Add("What you know about what the player mentioned, as you would put it in the game (use it if it helps, in your own words):");
+            lines.AddRange(lore.Select(t => $"- [{t.Topic}] {string.Join(" / ", t.Lines)}"));
         }
 
         var tasks = _actions.GetOpenTasks(npc.Id);

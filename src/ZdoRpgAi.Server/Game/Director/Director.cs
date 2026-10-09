@@ -186,7 +186,7 @@ public class Director {
             }
 
             Log.Trace("Publishing MP3 part {Part}/{Count} for NPC {NpcId}", i + 1, chunks.Count, npc.Id);
-            _directorHelper.PublishNpcSpeaksMp3(npc.Id, chunks[i], mp3);
+            _directorHelper.PublishNpcSpeaksMp3(npc.Id, chunks[i], mp3, speech.TargetCharacterId);
 
             // A little slack, so the next part never cuts off the tail of this one
             var durationMs = (int)((Mp3Duration.Estimate(mp3.Mp3Bytes) ?? 0) * 1000);

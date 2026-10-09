@@ -98,7 +98,7 @@ public class ClientApplication : IDisposable {
         await Task.Delay(200);
 
         var text = _stripDiacritics ? DiacriticsStripper.Strip(payload.Text) : payload.Text;
-        var sayPayload = new SayMp3FilePayload(payload.NpcId, mp3Name, text, payload.DurationSec);
+        var sayPayload = new SayMp3FilePayload(payload.NpcId, mp3Name, text, payload.DurationSec, payload.TargetId);
         var data = JsonExtensions.SerializeToObject(sayPayload, PayloadJsonContext.Default.SayMp3FilePayload);
         _bridge.SendMessageToMod(new Message(nameof(ClientToModMessageType.SayMp3File), 0, null, data, null));
     }
