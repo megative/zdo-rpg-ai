@@ -140,7 +140,7 @@ public class BanterScheduler {
         try {
             foreach (var line in JsonNode.Parse(reply![start..(end + 1)])?["lines"]?.AsArray() ?? []) {
                 var speaker = line?["speaker"]?.GetValue<string>();
-                var text = line?["text"]?.GetValue<string>()?.Trim();
+                var text = SpeechChunks.WithoutStageDirections(line?["text"]?.GetValue<string>());
                 if (speaker is "A" or "B" && !string.IsNullOrEmpty(text)) {
                     lines.Add((speaker == "A", text));
                 }

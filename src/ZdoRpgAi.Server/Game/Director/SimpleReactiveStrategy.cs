@@ -105,7 +105,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             var request = await BuildNpcRequestAsync(npcInfo, scene, rumors, lore, history, summaries);
             var response = await _mainLlm.ChatAsync(request);
             Log.Trace("Main LLM response: {Length} chars, {ToolCount} tool calls", response.Text?.Length ?? 0, response.ToolCalls?.Count ?? 0);
-            var text = response.Text?.Trim();
+            var text = SpeechChunks.WithoutStageDirections(response.Text);
             var calls = response.ToolCalls ?? [];
             if (string.IsNullOrEmpty(text) && calls.Count == 0) {
                 Log.Warn("LLM returned no response for NPC {NpcId}", npcId);
@@ -118,7 +118,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 : [];
             if (string.IsNullOrEmpty(text) && actions.Count > 0) {
                 // The model acted without a word, waiting to hear how it went: tell it, so the NPC speaks
-                text = (await SpeakAfterActionsAsync(request, response, actions))?.Trim();
+                text = SpeechChunks.WithoutStageDirections(await SpeakAfterActionsAsync(request, response, actions));
             }
 
             var newEvents = new List<StoryEvent>();
@@ -185,7 +185,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName, now: scene?.GameSeconds);
             _npcRepo.SaveSighting(npcInfo, scene?.CellName, scene?.GameSeconds);
             var request = await BuildNpcRequestAsync(npcInfo, scene, rumors, [], history, summaries, situation);
-            var text = (await _mainLlm.ChatAsync(request)).Text?.Trim();
+            var text = SpeechChunks.WithoutStageDirections((await _mainLlm.ChatAsync(request)).Text);
             if (string.IsNullOrEmpty(text) || text.Trim('.', '!', ' ', '(', ')').Equals(Skip, StringComparison.OrdinalIgnoreCase)) {
                 Log.Debug("{NpcId} keeps quiet", npcId);
                 return [];
@@ -523,6 +523,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         "Quest orders, quest items and faction matters belong to the game's own dialogue: when the player needs them, say a few words, name the topic to pick if you know it, and call open_dialogue. Never hand out quest items or pretend a quest step happened.",
         "You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.",
         $"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.",
+        "A task asks only for what the game shows to be real: bring items (you then take them with take_item) or go to people the player has met. Never send them to rooms, cellars, monsters or places you aren't told exist: you don't know them, and they won't be there.",
         .. (_config.QuestChains
             ? new[] { "Now and then, when it fits, a task can be a small quest (start_quest): its steps send the player to people they have met, then back to you. Never send them to anyone else." }
             : []),

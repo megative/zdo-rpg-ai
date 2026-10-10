@@ -7,6 +7,22 @@ namespace ZdoRpgAi.Server.Game.Director;
 public static partial class SpeechChunks {
     private const int MinChunkLength = 60;
 
+    // Drops stage directions like "*she puts down her needle*" that models add despite the rules:
+    // the voice would read them out. Null when nothing is left to say.
+    public static string? WithoutStageDirections(string? text) {
+        if (text == null) {
+            return null;
+        }
+        var spoken = Spaces().Replace(StageDirection().Replace(text, " "), " ").Trim();
+        return spoken.Length == 0 ? null : spoken;
+    }
+
+    [GeneratedRegex(@"\*[^*\n]*\*")]
+    private static partial Regex StageDirection();
+
+    [GeneratedRegex(@"[ \t]{2,}")]
+    private static partial Regex Spaces();
+
     public static List<string> Split(string text) {
         var chunks = new List<string>();
         var current = "";
