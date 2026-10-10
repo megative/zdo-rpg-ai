@@ -381,16 +381,24 @@
   color: var(--md-default-fg-color--light);
 }
 
-/* A command to run, with a word on what comes of it */
+/* Step by step, one tab per feature */
 
-.md-typeset .zdo-run {
-  max-width: 44rem;
+.md-typeset .zdo-guide {
+  max-width: 46rem;
   margin: 0 auto;
 }
 
-.md-typeset .zdo-run p {
-  font-size: .8rem;
-  color: var(--md-default-fg-color--light);
+/* A send-off below the guide */
+
+.md-typeset .zdo-farewell {
+  max-width: 34rem;
+  margin: 2.6rem auto 0;
+  text-align: center;
+  font-family: var(--zdo-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--md-accent-fg-color);
 }
 
 /* How it works */

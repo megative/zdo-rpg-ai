@@ -26,7 +26,7 @@ Hold Y and talk to anyone in Vvardenfell. They answer in their own voice, rememb
 - **In-game log.** L shows what you got and were asked to do; press again for the conversation.
 - **Any model.** Claude, OpenAI or Gemini, or everything local. A settings panel in the browser lists the models and checks your keys.
 
-The website has [scenes to try on a first evening](https://megative.github.io/zdo-rpg-ai/#scenes-for-a-first-evening).
+The website walks through [each new feature step by step](https://megative.github.io/zdo-rpg-ai/#guide), [по-русски тоже](https://megative.github.io/zdo-rpg-ai/ru/#guide).
 
 ## How it works
 
