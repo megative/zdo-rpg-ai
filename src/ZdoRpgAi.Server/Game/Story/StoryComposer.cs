@@ -77,6 +77,7 @@ public class StoryComposer {
                 TargetCharacterId = targetCharacterId,
                 // The client can't see the game clock, the mod reports it along with the observers
                 GameTime = observers.GameTime ?? gameTime,
+                GameSeconds = observers.GameSeconds,
                 Cell = observers.Cell,
                 Text = text,
             });
@@ -106,6 +107,7 @@ public class StoryComposer {
                 PlayerCharacterId = playerId,
                 NpcCharacterId = npcId,
                 GameTime = observers.GameTime ?? "0",
+                GameSeconds = observers.GameSeconds,
                 Cell = observers.Cell,
             });
             _story.RegisterEvent(evt, observers.Ids);

@@ -13,6 +13,8 @@ public abstract record StoryEvent {
     public string RealTime { get; init; } = "";
     // Cell where it happened, null for events recorded before cells were tracked
     public string? Cell { get; init; }
+    // The game clock in seconds, null for events recorded before it was kept
+    public double? GameSeconds { get; init; }
 
     public static T Create<T>(T evt) where T : StoryEvent =>
         evt with { RealTime = GetRealTime() };
@@ -42,9 +44,11 @@ public abstract record StoryEvent {
     }
 
     // A game action the NPC took, e.g. "gives the player 50 gold". Error is set if the game refused it.
+    // Tool: the one the NPC called, like give_item; null in events recorded before it was kept.
     public sealed record NpcAction : StoryEvent {
         public required string NpcCharacterId { get; init; }
         public required string Description { get; init; }
         public string? Error { get; init; }
+        public string? Tool { get; init; }
     }
 }

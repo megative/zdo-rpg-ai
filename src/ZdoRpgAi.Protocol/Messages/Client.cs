@@ -5,12 +5,20 @@ namespace ZdoRpgAi.Protocol.Messages;
 public enum ClientToModMessageType {
     SayMp3File,
     SetPushToTalkKey,
+    SetEventLogKey,
+    SetTextInputKey,
 }
 
 public record SayMp3FilePayload(string NpcId, string Mp3Name, string Text, double? DurationSec = null, string? TargetId = null);
 
 // Key: an openmw.input.KEY name, e.g. "Y", "F1", "LeftAlt"
 public record SetPushToTalkKeyPayload(string Key);
+
+// The key that shows and hides the event log in the game: an openmw.input.KEY name, like the above
+public record SetEventLogKeyPayload(string Key);
+
+// The key that opens a line to type what to say instead of speaking it, named like the above
+public record SetTextInputKeyPayload(string Key);
 
 // Mod → Client
 

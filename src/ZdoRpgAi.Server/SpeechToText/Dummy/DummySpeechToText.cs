@@ -14,5 +14,7 @@ public class DummySpeechToText : ISpeechToText {
 
     public void Cancel() { }
 
+    public Task TestAsync() => Task.CompletedTask;
+
     public void Dispose() { }
 }

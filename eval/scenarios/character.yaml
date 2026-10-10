@@ -1,0 +1,16 @@
+# Торговец открывает торговлю, а за одну грубость никто не лезет в драку
+name: Характер и торговля
+director: { interjections: false }
+steps:
+  - target: arrille
+    say: Покажи товар, хочу что-нибудь купить.
+    expect:
+      - replies: arrille
+      - language: Russian
+      - action: { npc: arrille, kind: service }
+  - target: fargoth
+    say: Фаргот, ты похож на мокрую крысу.
+    expect:
+      - replies: fargoth
+      - noAction: { npc: fargoth, kind: attack }
+      - judge: Фаргот обижается, но не лезет в драку из-за одной грубости

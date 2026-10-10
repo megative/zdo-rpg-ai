@@ -6,16 +6,15 @@ namespace ZdoRpgAi.Server.Util.Mp3;
 public class Mp3SpeedAdjuster {
     private static readonly ILog Log = Logger.Get<Mp3SpeedAdjuster>();
 
-    private readonly string _ffmpegExePath;
-    private readonly double _charactersPerSecond;
+    // Read on each use: changed settings are copied into it
+    private readonly Mp3SpeedConfig _config;
 
     public Mp3SpeedAdjuster(Mp3SpeedConfig config) {
-        _ffmpegExePath = config.FfmpegExePath;
-        _charactersPerSecond = config.CharactersPerSecond;
+        _config = config;
     }
 
     public async Task<byte[]> AdjustSpeedAsync(byte[] mp3, string text, double actualDurationSec) {
-        var targetDuration = text.Length / _charactersPerSecond;
+        var targetDuration = text.Length / _config.CharactersPerSecond;
         if (actualDurationSec <= targetDuration) {
             return mp3;
         }
@@ -27,7 +26,7 @@ public class Mp3SpeedAdjuster {
             tempoFactor, actualDurationSec, targetDuration, filterArg);
 
         var psi = new ProcessStartInfo {
-            FileName = _ffmpegExePath,
+            FileName = _config.FfmpegExePath,
             Arguments = $"-i pipe:0 -filter:a \"{filterArg}\" -f mp3 pipe:1",
             RedirectStandardInput = true,
             RedirectStandardOutput = true,
@@ -82,4 +81,9 @@ public class Mp3SpeedAdjuster {
 public class Mp3SpeedConfig {
     public string FfmpegExePath { get; set; } = "ffmpeg";
     public double CharactersPerSecond { get; set; } = 15;
+
+    public void CopyFrom(Mp3SpeedConfig other) {
+        FfmpegExePath = other.FfmpegExePath;
+        CharactersPerSecond = other.CharactersPerSecond;
+    }
 }

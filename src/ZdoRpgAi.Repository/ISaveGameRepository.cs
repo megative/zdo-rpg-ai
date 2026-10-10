@@ -1,6 +1,8 @@
 namespace ZdoRpgAi.Repository;
 
 public interface ISaveGameRepository : IDisposable {
+    // The playthrough whose memory is active: the save id the mod reported, "default" before that
+    string SaveId { get; }
     // Switches to the database of another playthrough; returns false if it is already active
     bool SetSaveContext(string saveId);
     long AddStoryEvent(string gameTime, string realTime, string type, string dataJson);
@@ -14,17 +16,33 @@ public interface ISaveGameRepository : IDisposable {
     void ArchiveStoryEvents(long[] eventIds, long summaryId);
     void ArchiveStoryEventSummaries(long[] summaryIds, long newSummaryId);
     RawNpcInfo? GetNpcInfo(string npcId);
+    // Every NPC this playthrough has info on
+    List<RawNpcInfo> GetKnownNpcs();
     long AddNpcTask(string npcId, string description, string? reward, string gameTime);
     List<RawNpcTask> GetOpenNpcTasks(string npcId);
+    RawNpcTask? GetOpenNpcTask(long taskId);
     // Closes an open task of that NPC; false if there is no such open task
     bool CloseNpcTask(long taskId, string npcId, NpcTaskStatus status, string gameTime);
     void SaveNpcInfo(RawNpcInfo info);
+    // A quest is a task with steps, in order
+    void AddQuestSteps(long taskId, (string NpcId, string Goal)[] steps);
+    List<RawQuestStep> GetQuestSteps(long taskId);
+    bool MarkQuestStepDone(long taskId, int index);
+    // Open quests whose next step is the player seeing this NPC
+    List<RawNpcTask> GetQuestsAwaiting(string npcId);
+    // NPCs that agreed to follow the player and haven't left them since
+    void AddCompanion(string npcId, string gameTime);
+    void RemoveCompanion(string npcId);
+    string[] GetCompanions();
 }
 
 public enum NpcTaskStatus { Open, Done, Cancelled }
 
 public record RawNpcTask(long Id, string NpcId, string Description, string? Reward);
+public record RawQuestStep(long TaskId, int Index, string NpcId, string Goal, bool Done);
 public record RawStoryEvent(long Id, string GameTime, string RealTime, string Type, string DataJson);
 public record RawStoryEventSummary(long Id, string Summary, string RealTime);
+// LastCell and LastSeenGameSeconds: where and when the NPC last talked with the player
 public record RawNpcInfo(string Id, string Name, string Race, string Sex,
-    string? ClassName = null, string? Faction = null, string? FactionRank = null, string? Personality = null);
+    string? ClassName = null, string? Faction = null, string? FactionRank = null, string? Personality = null,
+    string? LastCell = null, double? LastSeenGameSeconds = null);

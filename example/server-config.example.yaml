@@ -11,7 +11,9 @@ database:
 
 # HTTP / WebSocket server
 httpServer:
-  host: 0.0.0.0
+  # 127.0.0.1: only programs on this computer connect. 0.0.0.0: any device on the local network
+  # can too, for a client on another computer
+  host: 127.0.0.1
   port: 8080
   maxMessageSize: 10485760
   rpcTimeoutMs: 5000
@@ -76,6 +78,16 @@ director:
   banter: true
   banterIntervalSeconds: 180
   banterChance: 0.5
+  # After an NPC answers you, with this chance someone standing close who heard it may cut in
+  interjections: true
+  interjectionChance: 0.3
+  # Who follows you says a word on arriving somewhere new and, every interval with this chance,
+  # when it's been quiet
+  companions: true
+  companionTalkIntervalSeconds: 240
+  companionTalkChance: 0.5
+  # Alpha: NPCs may give small quests whose steps send you to other people you have met
+  questChains: false
 
 # LLM (dummy | gemini | openai)
 # LLM providers: dummy | openai (any OpenAI-compatible API) | gemini | claude

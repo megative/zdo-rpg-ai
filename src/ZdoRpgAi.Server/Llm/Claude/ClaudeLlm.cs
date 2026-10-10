@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.Llm.Claude;
 
@@ -11,12 +13,28 @@ namespace ZdoRpgAi.Server.Llm.Claude;
 // SDK serializes through reflection, which this Native AOT server can't do. The stable part of the
 // prompt (tools and SystemPromptPrefix) is cached, and models that support it get a server-side
 // fallback model, so a refused reply is re-served instead of the NPC falling silent.
-public class ClaudeLlm : ILlm {
+public class ClaudeLlm : ILlm, IModelCatalog {
     private static readonly ILog Log = Logger.Get<ClaudeLlm>();
     private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     private const int MaxTokens = 16000;
     private const string ApiVersion = "2023-06-01";
+
+    // Per million tokens, in / out, as Anthropic listed them in October 2026: for choosing by budget
+    private static readonly Dictionary<string, string> Prices = new() {
+        ["claude-fable-5-1"] = "$10 / $50",
+        ["claude-fable-5"] = "$10 / $50",
+        ["claude-opus-5-5"] = "$4 / $20",
+        ["claude-opus-5"] = "$5 / $25",
+        ["claude-opus-4-8"] = "$5 / $25",
+        ["claude-opus-4-7"] = "$5 / $25",
+        ["claude-opus-4-6"] = "$5 / $25",
+        ["claude-sonnet-5-5"] = "$2 / $10",
+        ["claude-sonnet-5"] = "$2 / $10",
+        ["claude-sonnet-4-6"] = "$3 / $15",
+        ["claude-haiku-5-5"] = "$0.10 / $0.50",
+        ["claude-haiku-4-5"] = "$1 / $5",
+    };
     private const string FallbackBeta = "server-side-fallback-2026-07-01";
 
     // An NPC that takes minutes to answer is worse than one that doesn't
@@ -36,6 +54,34 @@ public class ClaudeLlm : ILlm {
         if (_serverFallback) {
             _http.DefaultRequestHeaders.Add("anthropic-beta", FallbackBeta);
         }
+    }
+
+    // Newest first, as the Models API lists them
+    public async Task<List<CatalogItem>> ListModelsAsync() {
+        // Its own client: the fallback beta header belongs to messages only
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        http.DefaultRequestHeaders.Add("x-api-key", _config.ApiKey);
+        http.DefaultRequestHeaders.Add("anthropic-version", ApiVersion);
+
+        var items = new List<CatalogItem>();
+        string? after = null;
+        do {
+            var url = $"{_baseUrl}/v1/models?limit=1000" + (after == null ? "" : $"&after_id={Uri.EscapeDataString(after)}");
+            var resp = await http.GetAsync(url);
+            var body = await resp.Content.ReadAsStringAsync();
+            if (!resp.IsSuccessStatusCode) {
+                throw new HttpRequestException(ApiError.Describe(resp.StatusCode, body));
+            }
+
+            var doc = JsonNode.Parse(body);
+            foreach (var model in doc?["data"]?.AsArray() ?? []) {
+                if (model?["id"]?.GetValue<string>() is { } id) {
+                    items.Add(new CatalogItem(id, model["display_name"]?.GetValue<string>(), Price: Prices.GetValueOrDefault(id)));
+                }
+            }
+            after = doc?["has_more"]?.GetValue<bool>() == true ? doc["last_id"]?.GetValue<string>() : null;
+        } while (after != null);
+        return items;
     }
 
     public async Task<LlmResponse> ChatAsync(LlmRequest request) {
@@ -68,7 +114,7 @@ public class ClaudeLlm : ILlm {
 
         if (!resp.IsSuccessStatusCode) {
             Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, respJson);
-            return new LlmResponse { Text = null };
+            return new LlmResponse { Error = ApiError.Describe(resp.StatusCode, respJson) };
         }
 
         Log.Trace("Raw response: {Response}", respJson);
@@ -194,8 +240,9 @@ public class ClaudeLlm : ILlm {
 
         // A refusal arrives as HTTP 200; it is the fallback chain's final answer if one was set
         if (doc?["stop_reason"]?.GetValue<string>() == "refusal") {
-            Log.Warn("Claude declined to answer: {Category}", doc["stop_details"]?["category"]?.ToString() ?? "unknown");
-            return new LlmResponse { Text = null };
+            var category = doc["stop_details"]?["category"]?.ToString() ?? "unknown";
+            Log.Warn("Claude declined to answer: {Category}", category);
+            return new LlmResponse { Error = $"declined to answer ({category})" };
         }
 
         string? text = null;

@@ -4,6 +4,8 @@ using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
 using ZdoRpgAi.Protocol.Rpc;
 using ZdoRpgAi.Repository;
+using ZdoRpgAi.Server.Bootstrap;
+using ZdoRpgAi.Server.Game.Npc;
 using ZdoRpgAi.Server.Game.Story;
 using ZdoRpgAi.Server.Llm;
 
@@ -17,6 +19,8 @@ public class NpcActions {
 
     private const string GoldId = "gold_001";
     private const int MaxDispositionChange = 25;
+    // A quest that moved on to its next step; never a stored status
+    private const string Updated = "Updated";
     public static readonly string[] Services = ["barter", "training", "travel", "spells", "repair"];
 
     private static readonly List<LlmToolParameter> ItemParameters = [
@@ -24,7 +28,7 @@ public class NpcActions {
         new() { Name = "count", Type = "integer", Description = "How many, e.g. the exact amount of gold agreed on" },
     ];
 
-    public static readonly List<LlmTool> Tools = [
+    private static readonly List<LlmTool> BaseTools = [
         new() {
             Name = "give_item",
             Description = "Give the player an item or gold you carry: a gift, a sale, a reward.",
@@ -44,7 +48,7 @@ public class NpcActions {
             Description = "Change how much you like the player when they offend, flatter, help or cheat you. It changes your prices and willingness to help.",
             Parameters = [
                 new() { Name = "delta", Type = "integer", Description = $"From -{MaxDispositionChange} (deeply offended) to {MaxDispositionChange} (won over); small talk is -5..5" },
-                new() { Name = "reason", Description = "A few words on why" },
+                new() { Name = "reason", Description = "A few words on why, in the language you speak: the player sees them" },
             ],
         },
         new() {
@@ -52,7 +56,7 @@ public class NpcActions {
             Description = "Ask the player to do something concrete for you: fetch an item, deliver a message, deal with someone. Only promise a reward you can pay.",
             Parameters = [
                 new() { Name = "description", Description = "The task in a few words, as the player should remember it" },
-                new() { Name = "reward", Description = "What you promise in return, e.g. \"50 gold\"", Required = false },
+                new() { Name = "reward", Description = "What you promise in return, e.g. \"50 gold\", in the language you speak", Required = false },
             ],
         },
         new() {
@@ -79,19 +83,48 @@ public class NpcActions {
         },
     ];
 
+    // Alpha, with director.questChains on
+    private static readonly List<LlmTool> QuestTools = [
+        new() {
+            Name = "start_quest",
+            Description = "Give the player a small quest of one or two steps, each a visit to someone from PEOPLE THE PLAYER HAS MET; "
+                + "at the end they come back to you for the reward. Only when it fits who you are and what you talk about.",
+            Parameters = [
+                new() { Name = "title", Description = "A short name for the quest, in the language you speak" },
+                new() { Name = "step1_npc", Description = "Id of whom the player goes to first, from PEOPLE THE PLAYER HAS MET" },
+                new() { Name = "step1_goal", Description = "What the player does there, naming the person and the place, in the language you speak" },
+                new() { Name = "step2_npc", Description = "Id of whom they go to next, for a second step", Required = false },
+                new() { Name = "step2_goal", Description = "What they do there", Required = false },
+                new() { Name = "final_goal", Description = "What they bring or tell you at the end, in the language you speak", Required = false },
+                new() { Name = "reward", Description = "What you promise in return, in the language you speak", Required = false },
+            ],
+        },
+        new() {
+            Name = "advance_quest",
+            Description = "Mark the player's step of a quest done, when the step is with you and they really did what it asks.",
+            Parameters = [new() { Name = "quest_id", Type = "integer", Description = "Number of the quest" }],
+        },
+    ];
+
     private readonly IRpcChannel _rpc;
     private readonly ISaveGameRepository _saveGameRepo;
+    private readonly NpcRepository _npcRepo;
+    private readonly DirectorSection _config;
 
-    public NpcActions(IRpcChannel rpc, ISaveGameRepository saveGameRepo) {
+    public NpcActions(IRpcChannel rpc, ISaveGameRepository saveGameRepo, NpcRepository npcRepo, DirectorSection config) {
         _rpc = rpc;
         _saveGameRepo = saveGameRepo;
+        _npcRepo = npcRepo;
+        _config = config;
     }
+
+    public List<LlmTool> Tools => _config.QuestChains ? [.. BaseTools, .. QuestTools] : BaseTools;
 
     public List<RawNpcTask> GetOpenTasks(string npcId) => _saveGameRepo.GetOpenNpcTasks(npcId);
 
     // Runs the tool calls in order. Each becomes a story event, so the NPC remembers what it did
     // and whether the game let it happen.
-    public async Task<List<StoryEvent.NpcAction>> ExecuteAsync(string npcId, string playerId, string gameTime, string? cell, IReadOnlyList<LlmToolCall> calls) {
+    public async Task<List<StoryEvent.NpcAction>> ExecuteAsync(string npcId, string playerId, string gameTime, double? gameSeconds, string? cell, IReadOnlyList<LlmToolCall> calls) {
         var events = new List<StoryEvent.NpcAction>();
         var anyFailed = false;
         foreach (var call in calls) {
@@ -100,17 +133,35 @@ public class NpcActions {
                 ? ("marks a task as done", new ActionResultPayload(false, "an earlier action failed"))
                 : await ExecuteAsync(npcId, playerId, gameTime, call);
             anyFailed |= !result.Success;
+            if (result.Success) {
+                TrackCompanion(npcId, call.Name, gameTime);
+            }
             var error = result.Success ? null : result.Error ?? "failed";
             Log.Info("NPC {NpcId} {Action}: {Result}", npcId, description, error ?? "done");
             events.Add(StoryEvent.Create(new StoryEvent.NpcAction {
                 NpcCharacterId = npcId,
                 GameTime = gameTime,
+                GameSeconds = gameSeconds,
                 Cell = cell,
                 Description = description,
                 Error = error,
+                Tool = call.Name,
             }));
         }
         return events;
+    }
+
+    // Following the player makes a companion; leaving them or turning on them ends it
+    private void TrackCompanion(string npcId, string tool, string gameTime) {
+        switch (tool) {
+            case "follow_player":
+                _saveGameRepo.AddCompanion(npcId, gameTime);
+                break;
+            case "stop_following":
+            case "attack_player":
+                _saveGameRepo.RemoveCompanion(npcId);
+                break;
+        }
     }
 
     private async Task<(string Description, ActionResultPayload Result)> ExecuteAsync(string npcId, string playerId, string gameTime, LlmToolCall call) {
@@ -151,7 +202,7 @@ public class NpcActions {
                         return (description, new ActionResultPayload(true));
                     }
                     return (description, await CallAsync(nameof(ServerToModMessageType.ModifyDisposition),
-                        new ModifyDispositionPayload(npcId, playerId, delta), PayloadJsonContext.Default.ModifyDispositionPayload));
+                        new ModifyDispositionPayload(npcId, playerId, delta, reason), PayloadJsonContext.Default.ModifyDispositionPayload));
                 }
             case "give_task": {
                     var task = GetString(call.Arguments, "description");
@@ -160,7 +211,7 @@ public class NpcActions {
                     }
                     var reward = GetString(call.Arguments, "reward");
                     var taskId = _saveGameRepo.AddNpcTask(npcId, task, reward, gameTime);
-                    PublishTaskUpdate(npcId, task, NpcTaskStatus.Open);
+                    PublishTaskUpdate(npcId, taskId, task, reward, nameof(NpcTaskStatus.Open));
                     return ($"gives the player task #{taskId}: {task}{(reward == null ? "" : $" (reward: {reward})")}", new ActionResultPayload(true));
                 }
             case "complete_task":
@@ -170,12 +221,21 @@ public class NpcActions {
                     var taskId = GetInt(call.Arguments, "task_id");
                     var task = _saveGameRepo.GetOpenNpcTasks(npcId).FirstOrDefault(t => t.Id == taskId);
                     var status = done ? NpcTaskStatus.Done : NpcTaskStatus.Cancelled;
+                    // A quest is done once the player has been everywhere it sent them
+                    var pending = task == null ? null : _saveGameRepo.GetQuestSteps(task.Id).FirstOrDefault(s => !s.Done && s.NpcId != npcId);
+                    if (done && pending != null) {
+                        return ($"{verb} quest #{task!.Id}", new ActionResultPayload(false, $"the player still has to {pending.Goal}"));
+                    }
                     if (task == null || !_saveGameRepo.CloseNpcTask(task.Id, npcId, status, gameTime)) {
                         return ($"{verb} task #{taskId}", new ActionResultPayload(false, "no such open task"));
                     }
-                    PublishTaskUpdate(npcId, task.Description, status);
+                    PublishTaskUpdate(npcId, task.Id, task.Description, task.Reward, status.ToString());
                     return ($"{verb} task #{task.Id}: {task.Description}", new ActionResultPayload(true));
                 }
+            case "start_quest":
+                return StartQuest(npcId, call.Arguments, gameTime);
+            case "advance_quest":
+                return AdvanceQuest(npcId, call.Arguments);
             case "open_dialogue":
                 return ("opens the dialogue with the player", await CallAsync(nameof(ServerToModMessageType.OpenDialogue),
                     new OpenDialoguePayload(npcId), PayloadJsonContext.Default.OpenDialoguePayload));
@@ -193,9 +253,55 @@ public class NpcActions {
         }
     }
 
-    private void PublishTaskUpdate(string npcId, string description, NpcTaskStatus status) {
+    // A task whose steps send the player to people they have met, the last one back to the giver.
+    // The player's log shows the title and what to do next.
+    private (string Description, ActionResultPayload Result) StartQuest(string npcId, JsonObject args, string gameTime) {
+        if (!_config.QuestChains) {
+            return ("starts a quest", new ActionResultPayload(false, "quests are off"));
+        }
+        var title = GetString(args, "title");
+        var steps = new[] { (Npc: GetString(args, "step1_npc"), Goal: GetString(args, "step1_goal")), (Npc: GetString(args, "step2_npc"), Goal: GetString(args, "step2_goal")) }
+            .Where(s => s.Npc != null || s.Goal != null)
+            .ToList();
+        if (title == null || steps.Count == 0 || steps.Any(s => s.Npc == null || s.Goal == null)) {
+            return ("starts a quest", new ActionResultPayload(false, "a quest needs a title and, for each step, someone to see and what to do"));
+        }
+
+        var met = _npcRepo.GetMet().Select(n => n.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var stranger = steps.FirstOrDefault(s => string.Equals(s.Npc, npcId, StringComparison.OrdinalIgnoreCase) || !met.Contains(s.Npc!));
+        if (stranger.Npc != null) {
+            return ($"starts the quest \"{title}\"", new ActionResultPayload(false, $"{stranger.Npc} is not someone else the player has met"));
+        }
+
+        var reward = GetString(args, "reward");
+        var final = GetString(args, "final_goal") ?? title;
+        var taskId = _saveGameRepo.AddNpcTask(npcId, title, reward, gameTime);
+        _saveGameRepo.AddQuestSteps(taskId, [.. steps.Select(s => (s.Npc!, s.Goal!)), (npcId, final)]);
+        PublishTaskUpdate(npcId, taskId, $"{title}: {steps[0].Goal}", reward, nameof(NpcTaskStatus.Open));
+        return ($"gives the player quest #{taskId} \"{title}\": {string.Join("; then ", steps.Select(s => s.Goal))}; then back to you: {final}"
+            + (reward == null ? "" : $" (reward: {reward})"), new ActionResultPayload(true));
+    }
+
+    // The NPC of the player's current step says it's done; the log moves on to the next one
+    private (string Description, ActionResultPayload Result) AdvanceQuest(string npcId, JsonObject args) {
+        var questId = GetInt(args, "quest_id");
+        var quest = questId == null ? null : _saveGameRepo.GetOpenNpcTask(questId.Value);
+        var steps = quest == null ? [] : _saveGameRepo.GetQuestSteps(quest.Id);
+        var current = steps.FirstOrDefault(s => !s.Done);
+        if (quest == null || current == null || current.Index == steps[^1].Index
+            || !string.Equals(current.NpcId, npcId, StringComparison.OrdinalIgnoreCase)) {
+            return ($"moves quest #{questId} on", new ActionResultPayload(false, "the player's step in it isn't with you"));
+        }
+
+        _saveGameRepo.MarkQuestStepDone(quest.Id, current.Index);
+        var next = steps.First(s => s.Index > current.Index);
+        PublishTaskUpdate(quest.NpcId, quest.Id, $"{quest.Description}: {next.Goal}", quest.Reward, Updated);
+        return ($"marks the player's step of quest #{quest.Id} done: {current.Goal}", new ActionResultPayload(true));
+    }
+
+    private void PublishTaskUpdate(string npcId, long taskId, string description, string? reward, string status) {
         _rpc.Publish(nameof(ServerToModMessageType.TaskUpdate), JsonExtensions.SerializeToObject(
-            new TaskUpdatePayload(npcId, description, status.ToString()), PayloadJsonContext.Default.TaskUpdatePayload));
+            new TaskUpdatePayload(npcId, description, status, taskId, reward), PayloadJsonContext.Default.TaskUpdatePayload));
     }
 
     private async Task<ActionResultPayload> CallAsync<T>(string type, T payload, JsonTypeInfo<T> typeInfo) {

@@ -47,7 +47,8 @@ public record GetPlayerInfoResponsePayload(string ObjectId, string Name, string 
 
 // What changes during play, fetched once per NPC reply. Ratios are current/max in 0..1.
 public record GetSceneContextRequestPayload(string NpcId, string PlayerId);
-public record GetSceneContextResponsePayload(string? GameTime, string? CellName, SceneNpcState? Npc, ScenePlayerState? Player);
+// GameSeconds: the game clock as a number, like GetCharactersWhoHear's
+public record GetSceneContextResponsePayload(string? GameTime, string? CellName, SceneNpcState? Npc, ScenePlayerState? Player, double? GameSeconds = null);
 // Disposition is the vanilla 0-100 attitude toward the player; Services are what the NPC offers
 // (barter, training, travel, spells, repair)
 public record SceneNpcState(int Level, float HealthRatio, int Gold, string[] Equipped, SceneItem[] Items,
@@ -76,12 +77,15 @@ public record GetTopicLinesRequestPayload(string NpcId, string[] Topics, int Lim
 public record GetTopicLinesResponsePayload(TopicLines[] Topics);
 public record TopicLines(string Topic, string[] Lines);
 
-// A task an NPC gave the player changed: Status is Open (new), Done or Cancelled
-public record TaskUpdatePayload(string NpcId, string Description, string Status);
+// A task an NPC gave the player changed: Status is Open (new), Updated (a quest moved on to its next
+// step: Description is what to do now), Done or Cancelled. The mod keeps the open ones in the
+// player's log, by TaskId.
+public record TaskUpdatePayload(string NpcId, string Description, string Status, long? TaskId = null, string? Reward = null);
 // The NPC is about to answer: the mod shows "Name: ..." until the line arrives
 public record NpcThinkingPayload(string NpcId);
 public record TransferItemPayload(string FromCharacterId, string ToCharacterId, string ItemId, int Count);
-public record ModifyDispositionPayload(string NpcId, string PlayerId, int Delta);
+// Reason, in the NPC's words, shows in the player's log
+public record ModifyDispositionPayload(string NpcId, string PlayerId, int Delta, string? Reason = null);
 // Service: barter, training, travel, spells or repair
 public record OpenServicePayload(string NpcId, string Service);
 // Opens the game's own dialogue with the NPC once it has finished speaking

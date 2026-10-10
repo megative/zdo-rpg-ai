@@ -16,15 +16,28 @@ public class HttpServer {
     private readonly WebApplication _app;
     private readonly int _maxMessageSize;
     private readonly int _rpcTimeoutMs;
-    private readonly string _clientToken;
+    // Read on each connection: the token can change in the settings while the server runs
+    private readonly HttpServerSection _config;
     private readonly List<IChannel> _activeChannels = new();
 
     public event Action<IChannel>? ClientConnected;
 
+    // Where this run listens; a changed address takes effect with the next run
+    public string Host => _config.Host;
+    public int Port => _config.Port;
+
+    public int ConnectedClients {
+        get {
+            lock (_activeChannels) {
+                return _activeChannels.Count;
+            }
+        }
+    }
+
     public HttpServer(HttpServerSection config) {
         _maxMessageSize = config.MaxMessageSize;
         _rpcTimeoutMs = config.RpcTimeoutMs;
-        _clientToken = config.ClientToken;
+        _config = config;
 
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
@@ -44,7 +57,8 @@ public class HttpServer {
                 return;
             }
 
-            if (_clientToken.Length > 0 && context.Request.Headers["X-ZdoRpgAi-Client"] != _clientToken) {
+            var clientToken = _config.ClientToken;
+            if (clientToken.Length > 0 && context.Request.Headers["X-ZdoRpgAi-Client"] != clientToken) {
                 context.Response.StatusCode = 403;
                 return;
             }
@@ -68,6 +82,9 @@ public class HttpServer {
             Log.Info("Client disconnected");
         });
     }
+
+    // More routes, like the web panel's, before the server starts
+    public void AddEndpoints(Action<WebApplication> map) => map(_app);
 
     public async Task StartAsync(CancellationToken ct = default) {
         ct.Register(() => {

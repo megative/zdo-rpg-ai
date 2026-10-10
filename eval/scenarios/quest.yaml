@@ -1,0 +1,16 @@
+# Альфа: Селлус может дать квест с шагом к Каю, которого игрок уже видел
+name: Квест через Балмору
+director: { questChains: true, interjections: false }
+steps:
+  - go: "Balmora, Caius Cosades' House"
+  - target: caius_cosades
+    say: Здравствуй. Я в городе новенький, знакомлюсь.
+    expect:
+      - replies: caius_cosades
+  - go: Seyda Neen
+  - target: sellus_gravius
+    say: Селлус, есть для меня дело? Я как раз хожу в Балмору.
+    expect:
+      - replies: sellus_gravius
+      - promptHas: { npc: sellus_gravius, text: PEOPLE THE PLAYER HAS MET }
+      - judge: Селлус либо даёт квест с шагом к Каю Косадесу в Балморе, либо внятно отказывает

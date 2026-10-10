@@ -41,15 +41,13 @@ public class BanterScheduler {
         _config = config;
     }
 
+    // Runs even with banter off, so turning it on in the settings takes effect without a restart
     public async Task RunAsync(CancellationToken ct) {
-        if (!_config.Banter) {
-            return;
-        }
-
         try {
             while (!ct.IsCancellationRequested) {
                 await Task.Delay(TimeSpan.FromSeconds(_config.BanterIntervalSeconds), ct);
-                if (DateTime.UtcNow - _storyComposer.LastPlayerActivity < QuietBeforeBanter
+                if (!_config.Banter
+                    || DateTime.UtcNow - _storyComposer.LastPlayerActivity < QuietBeforeBanter
                     || Random.Shared.NextDouble() > _config.BanterChance) {
                     continue;
                 }
@@ -67,10 +65,12 @@ public class BanterScheduler {
         }
     }
 
+    // Banter right away, unless someone is talking: for scenarios and tests
+    internal Task<bool> TryNowAsync() => _director.TryRunExclusiveAsync(ComposeBanterAsync);
+
     private async Task<List<StoryEvent>> ComposeBanterAsync() {
-        var around = await _directorHelper.QueryObserversAsync(PlayerId, null);
+        var around = await _directorHelper.QueryObserversAsync(PlayerId, null, MaxDistanceMeters);
         var pair = around.Nearby
-            .Where(c => c.DistanceMeters <= MaxDistanceMeters)
             .OrderBy(c => c.DistanceMeters)
             .Take(2)
             .ToArray();
@@ -88,7 +88,7 @@ public class BanterScheduler {
             return [];
         }
 
-        var rumors = await _rumors.GetRumorsAsync(a.Id, around.Cell, includeWitnessed: true);
+        var rumors = await _rumors.GetRumorsAsync(a.Id, around.Cell, includeWitnessed: true, now: around.GameSeconds);
         var lines = ParseLines((await _llm.ChatAsync(BuildRequest(a, b, around, rumors))).Text);
         Log.Info("Banter between {A} and {B}: {Count} lines", a.Id, b.Id, lines.Count);
 
@@ -96,6 +96,7 @@ public class BanterScheduler {
             NpcCharacterId = line.ByA ? a.Id : b.Id,
             TargetCharacterId = line.ByA ? b.Id : a.Id,
             GameTime = around.GameTime ?? "0",
+            GameSeconds = around.GameSeconds,
             Cell = around.Cell,
             Text = line.Text,
         })).ToList();

@@ -13,6 +13,11 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private static readonly ILog Log = Logger.Get<SimpleReactiveStrategy>();
 
     private const int LoreWaitMs = 2500;
+    // Close enough to the NPC who answered to cut into the talk
+    private const float InterjectMeters = 6f;
+    private const string Skip = "SKIP";
+    // How many of the people the player has met an NPC may send them to with a quest
+    private const int MaxQuestPeople = 12;
 
     private readonly ILlm _mainLlm;
     private readonly ILlm _simpleLlm;
@@ -25,6 +30,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
     private readonly NpcPersonalityWriter _personalityWriter;
     private readonly RumorMill _rumors;
     private readonly LoreLibrary _lore;
+    private readonly ISaveGameRepository _saveGameRepo;
 
     public SimpleReactiveStrategy(
         ILlm mainLlm, ILlm simpleLlm, IStory story, NpcRepository npcRepo, IRpcChannel rpc,
@@ -36,10 +42,11 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         _rpc = rpc;
         _directorHelper = directorHelper;
         _config = config;
-        _actions = new NpcActions(rpc, saveGameRepo);
+        _actions = new NpcActions(rpc, saveGameRepo, npcRepo, config);
         _personalityWriter = new NpcPersonalityWriter(simpleLlm);
         _rumors = rumors;
         _lore = new LoreLibrary(rpc);
+        _saveGameRepo = saveGameRepo;
     }
 
     public async Task<List<StoryEvent>> ProcessStoryEventsAsync(List<StoryEvent> events) {
@@ -91,7 +98,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 _npcRepo.SavePersonality(npcInfo, personality);
                 npcInfo = npcInfo with { Personality = personality };
             }
-            var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName);
+            _npcRepo.SaveSighting(npcInfo, scene?.CellName, scene?.GameSeconds);
+            var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName, now: scene?.GameSeconds);
             // Lore is a bonus: the reply doesn't wait long for it (the topic list loads in the background)
             var lore = await Task.WhenAny(loreTask, Task.Delay(LoreWaitMs)) == loreTask ? loreTask.Result : [];
             var request = await BuildNpcRequestAsync(npcInfo, scene, rumors, lore, history, summaries);
@@ -106,7 +114,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
 
             var eventTime = scene?.GameTime ?? gameTime!;
             var actions = calls.Count > 0 && playerId != null
-                ? await _actions.ExecuteAsync(npcId, playerId, eventTime, scene?.CellName, calls)
+                ? await _actions.ExecuteAsync(npcId, playerId, eventTime, scene?.GameSeconds, scene?.CellName, calls)
                 : [];
             if (string.IsNullOrEmpty(text) && actions.Count > 0) {
                 // The model acted without a word, waiting to hear how it went: tell it, so the NPC speaks
@@ -120,6 +128,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                     NpcCharacterId = npcId,
                     TargetCharacterId = playerId,
                     GameTime = eventTime,
+                    GameSeconds = scene?.GameSeconds,
                     Cell = scene?.CellName,
                     Text = text,
                 }));
@@ -129,6 +138,71 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         }
         catch (Exception ex) {
             Log.Error("Failed to generate NPC response: {Error}", ex.Message);
+            return [];
+        }
+    }
+
+    // Someone standing close who heard the NPC answer the player may cut in with a line of its own,
+    // with the same knowledge it would have if spoken to. The model may let it stay quiet.
+    public async Task<List<StoryEvent>> InterjectAsync(StoryEvent.NpcSpeak reply) {
+        if (!_config.Interjections || Random.Shared.NextDouble() >= _config.InterjectionChance) {
+            return [];
+        }
+
+        var playerId = reply.TargetCharacterId ?? "player";
+        var around = await _directorHelper.QueryObserversAsync(reply.NpcCharacterId, [playerId], InterjectMeters);
+        if (around.Ids.Length == 0) {
+            return [];
+        }
+        var bystanderId = around.Ids[Random.Shared.Next(around.Ids.Length)];
+        var speaker = await _npcRepo.GetNpcInfoAsync(reply.NpcCharacterId);
+        Log.Debug("{NpcId} may cut in after {Speaker}", bystanderId, reply.NpcCharacterId);
+        return await SpeakUnpromptedAsync(bystanderId, playerId,
+            $"(Nobody spoke to you: you are standing close and overheard {speaker?.Name ?? "someone"} talking with the player. "
+            + $"Cut in with one short line only if it truly concerns you or you know better; otherwise reply with exactly {Skip}.)");
+    }
+
+    // A companion's word on the road: on arriving somewhere new with the player, or when it's been
+    // quiet for a while (arrivedAt null)
+    public Task<List<StoryEvent>> CompanionLineAsync(string npcId, string playerId, string? arrivedAt) =>
+        SpeakUnpromptedAsync(npcId, playerId, arrivedAt != null
+            ? $"(You travel with the player and have just arrived with them at {arrivedAt}. Say one short line about the place or the road behind, "
+              + $"in character, or reply with exactly {Skip}.)"
+            : "(You travel with the player and it has been quiet for a while. Say one short line in character: about where you are, the road, "
+              + $"what you are both after or what is on your mind; or reply with exactly {Skip}.)");
+
+    // A line nobody asked the NPC for, from all it knows, without acting; the model may decline
+    private async Task<List<StoryEvent>> SpeakUnpromptedAsync(string npcId, string playerId, string situation) {
+        try {
+            var npcInfo = await _npcRepo.GetNpcInfoAsync(npcId);
+            if (npcInfo == null) {
+                Log.Warn("Could not get info for NPC {NpcId}", npcId);
+                return [];
+            }
+
+            var scene = await _directorHelper.QuerySceneContextAsync(npcId, playerId);
+            var (history, summaries) = await _story.GetHistoryForCharacterAsync(npcId);
+            var rumors = await _rumors.GetRumorsAsync(npcId, scene?.CellName, now: scene?.GameSeconds);
+            _npcRepo.SaveSighting(npcInfo, scene?.CellName, scene?.GameSeconds);
+            var request = await BuildNpcRequestAsync(npcInfo, scene, rumors, [], history, summaries, situation);
+            var text = (await _mainLlm.ChatAsync(request)).Text?.Trim();
+            if (string.IsNullOrEmpty(text) || text.Trim('.', '!', ' ', '(', ')').Equals(Skip, StringComparison.OrdinalIgnoreCase)) {
+                Log.Debug("{NpcId} keeps quiet", npcId);
+                return [];
+            }
+
+            Log.Info("{NpcId} speaks up", npcId);
+            return [StoryEvent.Create(new StoryEvent.NpcSpeak {
+                NpcCharacterId = npcId,
+                TargetCharacterId = playerId,
+                GameTime = scene?.GameTime ?? "0",
+                GameSeconds = scene?.GameSeconds,
+                Cell = scene?.CellName,
+                Text = text,
+            })];
+        }
+        catch (Exception ex) {
+            Log.Error("Failed to compose a line for {NpcId}: {Error}", npcId, ex.Message);
             return [];
         }
     }
@@ -170,7 +244,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         var hearResponse = await rpc.CallAsync(
             nameof(ServerToModMessageType.GetCharactersWhoHear),
             JsonExtensions.SerializeToObject(
-                new GetCharactersWhoHearRequestPayload(evt.PlayerCharacterId),
+                new GetCharactersWhoHearRequestPayload(evt.PlayerCharacterId, DirectorHelper.HearingMeters),
                 PayloadJsonContext.Default.GetCharactersWhoHearRequestPayload));
 
         var payload = hearResponse.Json?.DeserializeSafe(PayloadJsonContext.Default.GetCharactersWhoHearResponsePayload);
@@ -237,14 +311,16 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return nearby[0].CharacterId;
     }
 
+    // situation: for a line nobody asked the NPC for, why it speaks now; it comes after the whole
+    // history, in place of something said to it
     private async Task<LlmRequest> BuildNpcRequestAsync(
         NpcInfo npc, GetSceneContextResponsePayload? scene, List<string> rumors, List<TopicLines> lore,
-        List<StoryEvent> history, List<StoryEventSummary> summaries) {
+        List<StoryEvent> history, List<StoryEventSummary> summaries, string? situation = null) {
         Log.Trace("Generating response for NPC {NpcName} with {HistoryCount} history events and {SummaryCount} summaries",
             npc.Name, history.Count, summaries.Count);
 
         var names = await ResolveNamesAsync(npc, history);
-        var contextBlock = BuildContextBlock(summaries, history, names);
+        var contextBlock = BuildContextBlock(summaries, situation == null && history.Count > 0 ? history[..^1] : history, names);
         var systemPrompt = BuildSystemPrompt(npc, scene, rumors, lore);
 
         var messages = new List<LlmMessage>();
@@ -260,7 +336,10 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             });
         }
 
-        if (history.Count > 0) {
+        if (situation != null) {
+            messages.Add(new LlmMessage { Role = LlmRole.User, Text = situation });
+        }
+        else if (history.Count > 0) {
             messages.Add(new LlmMessage {
                 Role = LlmRole.User,
                 Text = DescribeEvent(history[^1], names),
@@ -271,7 +350,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             SystemPromptPrefix = BuildRules(),
             SystemPrompt = systemPrompt,
             Messages = messages,
-            Tools = NpcActions.Tools,
+            Tools = _actions.Tools,
+            AllowToolCalls = situation == null,
         };
 
         Log.Trace("System prompt for {NpcId}:\n{SystemPrompt}", npc.Id, systemPrompt);
@@ -354,10 +434,30 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             lines.AddRange(questTopics.Select(DescribeQuestTopic));
         }
 
+        if (_saveGameRepo.GetCompanions().Contains(npc.Id)) {
+            lines.Add("You travel with the player as their companion: you follow them wherever they go.");
+        }
+
         var tasks = _actions.GetOpenTasks(npc.Id);
         if (tasks.Count > 0) {
             lines.Add("Tasks you gave the player that are still open:");
-            lines.AddRange(tasks.Select(t => $"- #{t.Id}: {t.Description}{(t.Reward == null ? "" : $" (reward: {t.Reward})")}"));
+            lines.AddRange(tasks.Select(DescribeTask));
+        }
+
+        // Someone else's quest that sends the player here now: this NPC knows its own part only
+        foreach (var quest in _saveGameRepo.GetQuestsAwaiting(npc.Id).Where(q => q.NpcId != npc.Id)) {
+            var step = _saveGameRepo.GetQuestSteps(quest.Id).First(s => !s.Done);
+            var giver = _saveGameRepo.GetNpcInfo(quest.NpcId)?.Name ?? quest.NpcId;
+            lines.Add($"The player is on quest #{quest.Id} \"{quest.Description}\" from {giver}: now they are to {step.Goal}. "
+                + "Once they really have, call advance_quest.");
+        }
+
+        if (_config.QuestChains) {
+            var met = _npcRepo.GetMet().Where(n => n.Id != npc.Id).Take(MaxQuestPeople).ToList();
+            if (met.Count > 0) {
+                lines.Add("PEOPLE THE PLAYER HAS MET, whom a quest of yours could send them to:");
+                lines.AddRange(met.Select(n => $"- {n.Name} ({n.Id}), {n.Race}{(n.ClassName == null ? "" : $" {n.ClassName}")}, last seen in {n.LastCell}"));
+            }
         }
 
         var playerLines = new List<string>();
@@ -381,7 +481,7 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
                 playerLines.Add($"There is a bounty of {player.Bounty} gold on their head.");
             }
             if (player.Quests is { Length: > 0 }) {
-                playerLines.Add("Their open quests, from their journal (what they are busy with):");
+                playerLines.Add("Their quests you take part in, and how far they have got (from their journal):");
                 playerLines.AddRange(player.Quests.Select(q => string.IsNullOrEmpty(q.Entry) ? $"- {q.Name}" : $"- {q.Name}: {Shorten(q.Entry, 240)}"));
             }
             playerLines.Add($"Their name is {player.Name}, but you only know it if they have introduced themselves.");
@@ -398,6 +498,20 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         return string.Join("\n", lines);
     }
 
+    // A task, or a quest with how far the player has got
+    private string DescribeTask(RawNpcTask task) {
+        var reward = task.Reward == null ? "" : $" (reward: {task.Reward})";
+        var steps = _saveGameRepo.GetQuestSteps(task.Id);
+        if (steps.Count == 0) {
+            return $"- #{task.Id}: {task.Description}{reward}";
+        }
+        var pending = steps.First(s => !s.Done || s.Index == steps[^1].Index);
+        var progress = pending.Index == steps[^1].Index
+            ? $"they have done every step and come back to you ({pending.Goal}): complete it and pay what you promised"
+            : $"for now they are to {pending.Goal}";
+        return $"- #{task.Id}: the quest \"{task.Description}\"{reward}; {progress}";
+    }
+
     // The same for every NPC and every turn, so providers can cache it
     private string BuildRules() => string.Join("\n", [
         "You play a character of The Elder Scrolls III: Morrowind, described below.",
@@ -409,6 +523,9 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         "Quest orders, quest items and faction matters belong to the game's own dialogue: when the player needs them, say a few words, name the topic to pick if you know it, and call open_dialogue. Never hand out quest items or pretend a quest step happened.",
         "You can only give what you carry, and the game checks that the player really has what they hand you. A refused action shows up in the history as [action failed]: react to it in character.",
         $"If you need something done, you may give the player a task (write it in the {_config.ResponseLanguage} language). When they really did it, pay what you promised and mark it done.",
+        .. (_config.QuestChains
+            ? new[] { "Now and then, when it fits, a task can be a small quest (start_quest): its steps send the player to people they have met, then back to you. Never send them to anyone else." }
+            : []),
     ]);
 
     // - topic "ring", starts the quest "Fargoth's Ring": there you say "...". Their journal then reads: "..."
@@ -497,7 +614,8 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
         string NameOf(string id) => names.GetValueOrDefault(id, id);
     }
 
-    private static string? BuildContextBlock(List<StoryEventSummary> summaries, List<StoryEvent> events, Dictionary<string, string> names) {
+    // events: what came before the line to answer
+    private static string? BuildContextBlock(List<StoryEventSummary> summaries, List<StoryEvent> contextEvents, Dictionary<string, string> names) {
         var parts = new List<string>();
 
         if (summaries.Count > 0) {
@@ -507,8 +625,6 @@ public class SimpleReactiveStrategy : IDirectorStrategy {
             }
         }
 
-        // Include all events except the very last one (which is the current player message)
-        var contextEvents = events.Count > 1 ? events[..^1] : [];
         if (contextEvents.Count > 0) {
             parts.Add("RECENT EVENTS:");
             foreach (var evt in contextEvents) {

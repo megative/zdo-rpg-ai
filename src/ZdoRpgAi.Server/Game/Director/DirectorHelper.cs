@@ -10,6 +10,10 @@ namespace ZdoRpgAi.Server.Game.Director;
 public class DirectorHelper {
     private static readonly ILog Log = Logger.Get<DirectorHelper>();
 
+    // How far a normal voice carries: everyone this close hears and remembers each word. The mod's
+    // own default, about 28 m, let a whole square or tavern overhear a quiet talk.
+    public const float HearingMeters = 10f;
+
     private readonly IRpcChannel _rpc;
 
     public DirectorHelper(IRpcChannel rpc) {
@@ -32,12 +36,12 @@ public class DirectorHelper {
             JsonExtensions.SerializeToObject(new NpcThinkingPayload(npcId), PayloadJsonContext.Default.NpcThinkingPayload));
     }
 
-    public async Task<Observers> QueryObserversAsync(string characterId, string[]? excludeIds) {
+    public async Task<Observers> QueryObserversAsync(string characterId, string[]? excludeIds, float maxDistanceMeters = HearingMeters) {
         try {
             var response = await _rpc.CallAsync(
                 nameof(ServerToModMessageType.GetCharactersWhoHear),
                 JsonExtensions.SerializeToObject(
-                    new GetCharactersWhoHearRequestPayload(characterId),
+                    new GetCharactersWhoHearRequestPayload(characterId, maxDistanceMeters),
                     PayloadJsonContext.Default.GetCharactersWhoHearRequestPayload));
 
             var payload = response.Json?.DeserializeSafe(PayloadJsonContext.Default.GetCharactersWhoHearResponsePayload);
@@ -47,7 +51,7 @@ public class DirectorHelper {
                 .Select(c => c.CharacterId)
                 .Where(id => id != characterId && (excludeIds == null ? true : !excludeIds.Contains(id)))
                 .ToArray();
-            return new Observers(ids, payload?.GameTime, payload?.SaveId, payload?.CellName, characters);
+            return new Observers(ids, payload?.GameTime, payload?.SaveId, payload?.CellName, characters, payload?.GameSeconds);
         }
         catch (Exception ex) {
             Log.Warn("Failed to query observers: {Error}", ex.Message);
@@ -72,6 +76,6 @@ public class DirectorHelper {
     }
 }
 
-// GameTime, SaveId and Cell come from the mod's reply, null if it didn't report them. Nearby is
-// everyone in earshot with distances, Ids the observers besides the excluded participants.
-public record Observers(string[] Ids, string? GameTime, string? SaveId, string? Cell, NearbyCharacterInfo[] Nearby);
+// GameTime, SaveId, Cell and GameSeconds come from the mod's reply, null if it didn't report them.
+// Nearby is everyone in earshot with distances, Ids the observers besides the excluded participants.
+public record Observers(string[] Ids, string? GameTime, string? SaveId, string? Cell, NearbyCharacterInfo[] Nearby, double? GameSeconds = null);

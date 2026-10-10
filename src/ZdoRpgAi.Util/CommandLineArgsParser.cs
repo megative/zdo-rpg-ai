@@ -18,6 +18,11 @@ public class CommandLineArgsParser {
         _args.Add(new ArgDef(shortName, longName, description, defaultValue));
     }
 
+    // An option that takes no value: present, it reads as "true"
+    public void AddFlag(string name, string description) {
+        _args.Add(new ArgDef(null, name, description, null, IsFlag: true));
+    }
+
     public ParsedArgs Parse(string[] args) {
         var values = new Dictionary<string, string>();
         var matched = new HashSet<string>();
@@ -55,6 +60,9 @@ public class CommandLineArgsParser {
                 Environment.Exit(1);
             }
 
+            if (value == null && def.IsFlag) {
+                value = "true";
+            }
             if (value == null) {
                 if (i + 1 < args.Length && !args[i + 1].StartsWith('-')) {
                     value = args[++i];
@@ -124,7 +132,7 @@ public class CommandLineArgsParser {
         }
     }
 
-    private record ArgDef(string? ShortName, string LongName, string Description, string? DefaultValue);
+    private record ArgDef(string? ShortName, string LongName, string Description, string? DefaultValue, bool IsFlag = false);
 }
 
 public class ParsedArgs {

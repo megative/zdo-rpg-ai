@@ -9,7 +9,21 @@ public class ClientConfig {
     public ServerConnectionConfig Server { get; set; } = new();
     public ModConnectionConfig Mod { get; set; } = new();
     public VoiceCaptureServiceConfig? VoiceCapture { get; set; }
+    public EventLogConfig EventLog { get; set; } = new();
+    public TextInputConfig TextInput { get; set; } = new();
     public bool StripDiacritics { get; set; }
+}
+
+// The log in the game of what NPCs did for the player: items, gold, tasks, disposition
+public class EventLogConfig {
+    // Shows and hides it, like voiceCapture.pushToTalk.key
+    public string Key { get; set; } = "L";
+}
+
+// Typing what to say instead of speaking it
+public class TextInputConfig {
+    // Opens the line to type in, like voiceCapture.pushToTalk.key
+    public string Key { get; set; } = "Enter";
 }
 
 public enum ModProvider {

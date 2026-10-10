@@ -54,7 +54,9 @@ public static class ClientBootstrap {
 
         var bridge = new ClientChannelBridge(server, modRpc);
         var pushToTalkKey = config.VoiceCapture is { Enabled: true } ? ModHotkeyListener.ToGameKeyName(config.VoiceCapture.PttKey) : null;
-        return new ClientApplication(bridge, mp3, voiceCapture, config.StripDiacritics, pushToTalk, pushToTalkKey);
+        var eventLogKey = string.IsNullOrWhiteSpace(config.EventLog.Key) ? null : ModHotkeyListener.ToGameKeyName(config.EventLog.Key);
+        var textInputKey = string.IsNullOrWhiteSpace(config.TextInput.Key) ? null : ModHotkeyListener.ToGameKeyName(config.TextInput.Key);
+        return new ClientApplication(bridge, mp3, voiceCapture, config.StripDiacritics, pushToTalk, pushToTalkKey, eventLogKey, textInputKey);
     }
 
     private static string ExpandPath(string path, string baseDir) {

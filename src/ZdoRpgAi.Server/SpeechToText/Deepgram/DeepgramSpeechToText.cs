@@ -4,6 +4,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using ZdoRpgAi.Core;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.SpeechToText.Deepgram;
 
@@ -15,7 +17,7 @@ internal record DeepgramAlternative(string Transcript);
 [JsonSerializable(typeof(DeepgramResult))]
 internal partial class DeepgramJsonContext : JsonSerializerContext;
 
-public class DeepgramSpeechToText : ISpeechToText {
+public class DeepgramSpeechToText : ISpeechToText, IModelCatalog {
     private static readonly ILog Log = Logger.Get<DeepgramSpeechToText>();
     private static readonly TimeSpan SessionTimeout = TimeSpan.FromSeconds(60);
 
@@ -102,6 +104,73 @@ public class DeepgramSpeechToText : ISpeechToText {
         }
         else {
             Log.Warn("Finish: WebSocket not open (state={State})", (object?)ws?.State ?? "null");
+        }
+    }
+
+    // Newest first, the ones that know the configured language before the rest. Deepgram lists every
+    // version of a model, each with some of its languages: they are put together.
+    public async Task<List<CatalogItem>> ListModelsAsync() {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        http.DefaultRequestHeaders.Add("Authorization", $"Token {_apiKey}");
+        var resp = await http.GetAsync("https://api.deepgram.com/v1/models");
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode) {
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, body));
+        }
+
+        var models = new Dictionary<string, (string Architecture, HashSet<string> Languages)>();
+        foreach (var model in JsonNode.Parse(body)?["stt"]?.AsArray() ?? []) {
+            var id = model?["canonical_name"]?.GetValue<string>();
+            if (id == null) {
+                continue;
+            }
+            if (!models.TryGetValue(id, out var entry)) {
+                entry = (model?["architecture"]?.GetValue<string>() ?? "", new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                models[id] = entry;
+            }
+            foreach (var language in model?["languages"]?.AsArray() ?? []) {
+                if (language?.GetValue<string>() is { } code) {
+                    entry.Languages.Add(code);
+                }
+            }
+        }
+
+        string[] newest = ["nova-3", "nova-2", "nova", "polaris", "whisper", "base"];
+        int Age(string architecture) => Array.IndexOf(newest, architecture) is var i and >= 0 ? i : newest.Length;
+        bool Speaks(HashSet<string> languages) => languages.Any(l => l.Equals("multi", StringComparison.OrdinalIgnoreCase)
+            || l.Equals(_language, StringComparison.OrdinalIgnoreCase) || l.StartsWith(_language + "-", StringComparison.OrdinalIgnoreCase));
+
+        var items = new List<CatalogItem>();
+        // "nova-3" stands for its general model, and is what configs usually say
+        foreach (var architecture in newest.Take(2)) {
+            if (models.TryGetValue($"{architecture}-general", out var general)) {
+                items.Add(new CatalogItem(architecture, Languages(general.Languages)));
+            }
+        }
+        items.AddRange(models
+            .OrderBy(m => Speaks(m.Value.Languages) ? 0 : 1)
+            .ThenBy(m => Age(m.Value.Architecture))
+            .ThenBy(m => m.Key.EndsWith("-general") ? 0 : 1)
+            .ThenBy(m => m.Key, StringComparer.OrdinalIgnoreCase)
+            .Select(m => new CatalogItem(m.Key, Languages(m.Value.Languages))));
+        return items;
+    }
+
+    // "ru, en, de +30": the configured language first, if the model knows it
+    private string? Languages(HashSet<string> languages) {
+        var ordered = languages.OrderBy(l => l.StartsWith(_language, StringComparison.OrdinalIgnoreCase) ? 0 : 1).ThenBy(l => l).ToList();
+        return ordered.Count == 0 ? null : string.Join(", ", ordered.Take(4)) + (ordered.Count > 4 ? $" +{ordered.Count - 4}" : "");
+    }
+
+    // The same model and language through Deepgram's file endpoint, which needs no session
+    public async Task TestAsync() {
+        using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        http.DefaultRequestHeaders.Add("Authorization", $"Token {_apiKey}");
+        var content = new ByteArrayContent(Wav.Silence());
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("audio/wav");
+        var resp = await http.PostAsync($"https://api.deepgram.com/v1/listen?model={Uri.EscapeDataString(_model)}&language={Uri.EscapeDataString(_language)}", content);
+        if (!resp.IsSuccessStatusCode) {
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, await resp.Content.ReadAsStringAsync()));
         }
     }
 

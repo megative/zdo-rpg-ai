@@ -1,0 +1,17 @@
+# Хрисскар далеко: о том, что Селлус дал денег, он узнаёт часа через два, а о поручении не узнаёт
+name: Слухи идут не сразу
+director: { interjections: false }
+steps:
+  - target: sellus_gravius
+    say: Селлус, займи пять монет на еду, а я потом помогу тебе с чем скажешь.
+    expect:
+      - replies: sellus_gravius
+  - target: hrisskar_flat-foot
+    say: Что слышно в деревне?
+    expect:
+      - replies: hrisskar_flat-foot
+      - promptLacks: { npc: hrisskar_flat-foot, text: Sellus Gravius gives the player }
+  - hours: 3
+    say: А сейчас что говорят?
+    expect:
+      - replies: hrisskar_flat-foot

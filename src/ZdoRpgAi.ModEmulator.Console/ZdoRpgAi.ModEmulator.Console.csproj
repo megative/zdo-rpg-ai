@@ -29,6 +29,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\ZdoRpgAi.ModEmulator\ZdoRpgAi.ModEmulator.csproj" />
     <ProjectReference Include="..\ZdoRpgAi.Protocol\ZdoRpgAi.Protocol.csproj" />
     <ProjectReference Include="..\ZdoRpgAi.Core\ZdoRpgAi.Core.csproj" />
     <ProjectReference Include="..\ZdoRpgAi.Util\ZdoRpgAi.Util.csproj" />

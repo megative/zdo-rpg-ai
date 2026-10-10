@@ -33,6 +33,37 @@ public class DirectorSection {
     public bool Banter { get; set; } = true;
     public double BanterIntervalSeconds { get; set; } = 180;
     public double BanterChance { get; set; } = 0.5;
+    // After an NPC answers the player, with this chance someone standing close who heard it may cut
+    // in with a line of its own
+    public bool Interjections { get; set; } = true;
+    public double InterjectionChance { get; set; } = 0.3;
+    // NPCs that follow the player say a word on arriving somewhere new and, every interval with
+    // this chance, when it's been quiet
+    public bool Companions { get; set; } = true;
+    public double CompanionTalkIntervalSeconds { get; set; } = 240;
+    public double CompanionTalkChance { get; set; } = 0.5;
+    // Alpha: NPCs may give small quests whose steps send the player to other NPCs they have met
+    public bool QuestChains { get; set; }
+
+    // The running server keeps this instance and reads it on each use, so changed settings are
+    // copied into it. A new setting goes here too.
+    public void CopyFrom(DirectorSection other) {
+        CompactThreshold = other.CompactThreshold;
+        CompactKeepRecent = other.CompactKeepRecent;
+        ResponseLanguage = other.ResponseLanguage;
+        PlayerBackstory = other.PlayerBackstory;
+        Greetings = other.Greetings;
+        GreetingCooldownMinutes = other.GreetingCooldownMinutes;
+        Banter = other.Banter;
+        BanterIntervalSeconds = other.BanterIntervalSeconds;
+        BanterChance = other.BanterChance;
+        Interjections = other.Interjections;
+        InterjectionChance = other.InterjectionChance;
+        Companions = other.Companions;
+        CompanionTalkIntervalSeconds = other.CompanionTalkIntervalSeconds;
+        CompanionTalkChance = other.CompanionTalkChance;
+        QuestChains = other.QuestChains;
+    }
 }
 
 public class DatabaseSection {
@@ -41,7 +72,8 @@ public class DatabaseSection {
 }
 
 public class HttpServerSection {
-    public string Host { get; set; } = "0.0.0.0";
+    // This computer only by default; 0.0.0.0 lets clients from the local network in
+    public string Host { get; set; } = "127.0.0.1";
     public int Port { get; set; } = 8080;
     public int MaxMessageSize { get; set; } = 10_485_760;
     public int RpcTimeoutMs { get; set; } = 5000;

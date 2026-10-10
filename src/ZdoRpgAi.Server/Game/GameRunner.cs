@@ -26,6 +26,7 @@ public class GameRunner {
     private readonly NpcRepository _npcRepo;
     private readonly Director.Director _director;
     private readonly Director.BanterScheduler _banter;
+    private readonly Director.CompanionScheduler _companions;
 
     public GameRunner(
         IMainRepository mainRepo, ISaveGameRepository saveGameRepo,
@@ -49,10 +50,16 @@ public class GameRunner {
         var rumors = new RumorMill(saveGameRepo, _npcRepo);
         _director = new Director.Director(story, directorHelper, npcSpeechGenerator, rpc, mainLlm, simpleLlm, _npcRepo, directorConfig, rumors, saveGameRepo);
         _banter = new Director.BanterScheduler(_director, directorHelper, _npcRepo, saveGameRepo, rumors, _storyComposer, mainLlm, directorConfig);
+        _companions = new Director.CompanionScheduler(_director, directorHelper, _director.Strategy, saveGameRepo, _storyComposer, directorConfig);
 
         _playerHandler.PlayerSpoke += _storyComposer.OnPlayerSpeak;
         _playerHandler.PlayerApproached += _storyComposer.OnPlayerApproach;
+        _playerHandler.PlayerChangedCell += _companions.OnPlayerChangedCell;
     }
 
-    public Task RunAsync(CancellationToken ct) => _banter.RunAsync(ct);
+    public Task RunAsync(CancellationToken ct) => Task.WhenAll(_banter.RunAsync(ct), _companions.RunAsync(ct));
+
+    internal Task<bool> BanterNowAsync() => _banter.TryNowAsync();
+
+    internal Task<bool> CompanionTalkNowAsync() => _companions.TryNowAsync();
 }

@@ -4,10 +4,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.Llm.OpenAi;
 
-public class OpenAiLlm : ILlm {
+public class OpenAiLlm : ILlm, IModelCatalog {
     private static readonly ILog Log = Logger.Get<OpenAiLlm>();
     private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -20,6 +22,8 @@ public class OpenAiLlm : ILlm {
         _baseUrl = config.BaseUrl.TrimEnd('/');
         _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.ApiKey}");
     }
+
+    public Task<List<CatalogItem>> ListModelsAsync() => OpenAiModelList.ListAsync(_http, _baseUrl, ModelTask.Chat);
 
     public async Task<LlmResponse> ChatAsync(LlmRequest request) {
         var url = $"{_baseUrl}/v1/chat/completions";
@@ -48,7 +52,7 @@ public class OpenAiLlm : ILlm {
 
         if (!resp.IsSuccessStatusCode) {
             Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, respJson);
-            return new LlmResponse { Text = null };
+            return new LlmResponse { Error = ApiError.Describe(resp.StatusCode, respJson) };
         }
 
         Log.Trace("Raw response: {Response}", respJson);
@@ -182,7 +186,7 @@ public class OpenAiLlm : ILlm {
 
         if (message == null) {
             Log.Warn("Empty response (no choices)");
-            return new LlmResponse { Text = null };
+            return new LlmResponse { Error = "empty response" };
         }
 
         var text = message["content"]?.GetValue<string>();

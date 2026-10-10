@@ -1,18 +1,15 @@
 using System.Net.Http.Headers;
-using System.Text;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.SpeechToText.OpenAi;
 
 // Whisper is batch, not streaming: incoming PCM (linear16, 16 kHz, mono) is buffered while the
 // session is active and transcribed in a single request on Finish().
-public class OpenAiSpeechToText : ISpeechToText {
+public class OpenAiSpeechToText : ISpeechToText, IModelCatalog {
     private static readonly ILog Log = Logger.Get<OpenAiSpeechToText>();
-
-    private const int SampleRate = 16_000;
-    private const int Channels = 1;
-    private const int BitsPerSample = 16;
 
     private readonly HttpClient _http = new();
     private readonly string _apiKey;
@@ -89,33 +86,13 @@ public class OpenAiSpeechToText : ISpeechToText {
         _http.Dispose();
     }
 
+    public Task TestAsync() => RequestTextAsync(Wav.Silence());
+
+    public Task<List<CatalogItem>> ListModelsAsync() => OpenAiModelList.ListAsync(_http, _baseUrl, ModelTask.Transcription);
+
     private async Task TranscribeAsync(byte[] pcm) {
         try {
-            var wav = WrapWav(pcm);
-
-            using var form = new MultipartFormDataContent();
-            var fileContent = new ByteArrayContent(wav);
-            fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
-            form.Add(fileContent, "file", "audio.wav");
-            form.Add(new StringContent(_model), "model");
-            if (!string.IsNullOrEmpty(_language)) {
-                form.Add(new StringContent(_language), "language");
-            }
-
-            var url = $"{_baseUrl}/v1/audio/transcriptions";
-            Log.Debug("Sending transcription request ({Bytes} byte WAV) to {Url}", wav.Length, url);
-
-            var resp = await _http.PostAsync(url, form);
-            var respJson = await resp.Content.ReadAsStringAsync();
-
-            if (!resp.IsSuccessStatusCode) {
-                Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, respJson);
-                return;
-            }
-
-            Log.Trace("Raw response: {Response}", respJson);
-
-            var text = JsonNode.Parse(respJson)?["text"]?.GetValue<string>()?.Trim();
+            var text = await RequestTextAsync(Wav.FromPcm(pcm));
             if (string.IsNullOrEmpty(text)) {
                 Log.Warn("Transcription returned no text");
                 return;
@@ -125,37 +102,31 @@ public class OpenAiSpeechToText : ISpeechToText {
             FinalResultReceived?.Invoke(text);
         }
         catch (Exception ex) {
-            Log.Error("Unexpected error in OpenAI STT transcription: {Error}", ex.Message);
+            Log.Error("OpenAI STT transcription failed: {Error}", ex.Message);
         }
     }
 
-    private static byte[] WrapWav(byte[] pcm) {
-        const int byteRate = SampleRate * Channels * BitsPerSample / 8;
-        const short blockAlign = Channels * BitsPerSample / 8;
-        var dataSize = pcm.Length;
-        var riffSize = 36 + dataSize;
+    // The recognized text; an API error throws with its reason
+    private async Task<string?> RequestTextAsync(byte[] wav) {
+        using var form = new MultipartFormDataContent();
+        var fileContent = new ByteArrayContent(wav);
+        fileContent.Headers.ContentType = new MediaTypeHeaderValue("audio/wav");
+        form.Add(fileContent, "file", "audio.wav");
+        form.Add(new StringContent(_model), "model");
+        if (!string.IsNullOrEmpty(_language)) {
+            form.Add(new StringContent(_language), "language");
+        }
 
-        using var ms = new MemoryStream(44 + dataSize);
-        using var w = new BinaryWriter(ms, Encoding.ASCII, leaveOpen: true);
+        var url = $"{_baseUrl}/v1/audio/transcriptions";
+        Log.Debug("Sending transcription request ({Bytes} byte WAV) to {Url}", wav.Length, url);
 
-        w.Write("RIFF"u8);
-        w.Write(riffSize);
-        w.Write("WAVE"u8);
+        var resp = await _http.PostAsync(url, form);
+        var respJson = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode) {
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, respJson));
+        }
 
-        w.Write("fmt "u8);
-        w.Write(16);                          // fmt chunk size
-        w.Write((short)1);                    // PCM
-        w.Write((short)Channels);
-        w.Write(SampleRate);
-        w.Write(byteRate);
-        w.Write(blockAlign);
-        w.Write((short)BitsPerSample);
-
-        w.Write("data"u8);
-        w.Write(dataSize);
-        w.Write(pcm);
-        w.Flush();
-
-        return ms.ToArray();
+        Log.Trace("Raw response: {Response}", respJson);
+        return JsonNode.Parse(respJson)?["text"]?.GetValue<string>()?.Trim();
     }
 }

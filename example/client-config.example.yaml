@@ -28,6 +28,16 @@ mod:
 
 stripDiacritics: false
 
+# The log in the game of what NPCs did for you: items and gold, tasks, disposition. The key shows
+# and hides it; any name that voiceCapture.pushToTalk.key accepts
+eventLog:
+  key: L
+
+# Typing instead of speaking: the key opens a line in the game, Enter says what you wrote to the
+# NPC you look at. Any name that voiceCapture.pushToTalk.key accepts
+textInput:
+  key: Enter
+
 # Voice capture (optional)
 voiceCapture:
   enabled: false

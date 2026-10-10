@@ -1,3 +1,4 @@
+using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
@@ -16,20 +17,25 @@ public static class ConfigParser {
             return default!;
         }
 
+        if (!TryParseYaml(yaml, jsonTypeInfo, out var config, out var error)) {
+            Console.Error.WriteLine($"Invalid config: {fullPath} ({error})");
+            Environment.Exit(1);
+        }
+        return config;
+    }
+
+    // For a config that changes while the program runs: an error leaves the caller to decide
+    public static bool TryParseYaml<T>(string yaml, JsonTypeInfo<T> jsonTypeInfo, [NotNullWhen(true)] out T? config, [NotNullWhen(false)] out string? error) {
         try {
-            var jsonNode = YamlToJsonTransformer.Parse(yaml);
-            var json = jsonNode.ToJsonString();
-            var config = JsonSerializer.Deserialize(json, jsonTypeInfo);
-            if (config == null) {
-                Console.Error.WriteLine($"Failed to parse config: {fullPath}");
-                Environment.Exit(1);
-            }
-            return config;
+            var json = YamlToJsonTransformer.Parse(yaml).ToJsonString();
+            config = JsonSerializer.Deserialize(json, jsonTypeInfo);
+            error = config == null ? "the config is empty" : null;
+            return config != null;
         }
         catch (Exception ex) {
-            Console.Error.WriteLine($"Invalid config: {fullPath} ({ex.Message})");
-            Environment.Exit(1);
-            return default!;
+            config = default;
+            error = ex.Message;
+            return false;
         }
     }
 }

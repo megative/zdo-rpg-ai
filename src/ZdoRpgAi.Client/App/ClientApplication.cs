@@ -15,6 +15,8 @@ public class ClientApplication : IDisposable {
     private readonly bool _stripDiacritics;
     private readonly ModHotkeyListener? _pushToTalk;
     private readonly string? _pushToTalkKey;
+    private readonly string? _eventLogKey;
+    private readonly string? _textInputKey;
 
     // Tracked state from mod
     private volatile string? _localPlayerId;
@@ -26,7 +28,9 @@ public class ClientApplication : IDisposable {
         VoiceCaptureService? voiceCapture = null,
         bool stripDiacritics = false,
         ModHotkeyListener? pushToTalk = null,
-        string? pushToTalkKey = null
+        string? pushToTalkKey = null,
+        string? eventLogKey = null,
+        string? textInputKey = null
     ) {
         _bridge = bridge;
         _mp3 = mp3;
@@ -34,6 +38,8 @@ public class ClientApplication : IDisposable {
         _stripDiacritics = stripDiacritics;
         _pushToTalk = pushToTalk;
         _pushToTalkKey = pushToTalkKey;
+        _eventLogKey = eventLogKey;
+        _textInputKey = textInputKey;
 
         _bridge.ServerMessageReceived += HandleServerMessage;
         _bridge.ModMessageReceived += HandleModMessage;
@@ -51,6 +57,16 @@ public class ClientApplication : IDisposable {
             var data = JsonExtensions.SerializeToObject(new SetPushToTalkKeyPayload(_pushToTalkKey), PayloadJsonContext.Default.SetPushToTalkKeyPayload);
             _bridge.SendMessageToMod(new Message(nameof(ClientToModMessageType.SetPushToTalkKey), 0, null, data, null));
             Log.Info("Push-to-talk key: {Key} (watched by the game)", _pushToTalkKey);
+        }
+        if (_eventLogKey != null) {
+            var data = JsonExtensions.SerializeToObject(new SetEventLogKeyPayload(_eventLogKey), PayloadJsonContext.Default.SetEventLogKeyPayload);
+            _bridge.SendMessageToMod(new Message(nameof(ClientToModMessageType.SetEventLogKey), 0, null, data, null));
+            Log.Info("Event log key: {Key}", _eventLogKey);
+        }
+        if (_textInputKey != null) {
+            var data = JsonExtensions.SerializeToObject(new SetTextInputKeyPayload(_textInputKey), PayloadJsonContext.Default.SetTextInputKeyPayload);
+            _bridge.SendMessageToMod(new Message(nameof(ClientToModMessageType.SetTextInputKey), 0, null, data, null));
+            Log.Info("Text input key: {Key}", _textInputKey);
         }
 
         var tasks = new List<Task> {

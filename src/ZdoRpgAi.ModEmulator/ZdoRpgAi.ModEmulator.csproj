@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ZdoRpgAi.Core\ZdoRpgAi.Core.csproj" />
+    <ProjectReference Include="..\ZdoRpgAi.Protocol\ZdoRpgAi.Protocol.csproj" />
+    <ProjectReference Include="..\ZdoRpgAi.Repository\ZdoRpgAi.Repository.csproj" />
+    <ProjectReference Include="..\ZdoRpgAi.Server\ZdoRpgAi.Server.csproj" />
+    <ProjectReference Include="..\ZdoRpgAi.Util\ZdoRpgAi.Util.csproj" />
+  </ItemGroup>
+
+</Project>

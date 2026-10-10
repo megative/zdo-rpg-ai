@@ -1,7 +1,10 @@
+using System.Text.Json.Serialization.Metadata;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Repository;
 using ZdoRpgAi.Server.App;
 using ZdoRpgAi.Server.Http;
+using ZdoRpgAi.Server.Panel;
+using ZdoRpgAi.Server.Settings;
 using ZdoRpgAi.Server.Llm;
 using ZdoRpgAi.Server.Llm.Dummy;
 using ZdoRpgAi.Server.Llm.Claude;
@@ -31,21 +34,38 @@ public static class ServerBootstrap {
         }
     }
 
-    public static ServerApplication Create(ServerConfig config) {
+    // configPath and configTypeInfo let the web panel change the settings in the file; panel false
+    // leaves the panel out, the config file is still watched for edits by hand. restart ends this
+    // run for a new one with the config read afresh: the panel's restart button.
+    public static ServerApplication Create(ServerConfig config, string configPath, JsonTypeInfo<ServerConfig> configTypeInfo, string version,
+        bool panel = true, Action? restart = null) {
         var mainRepo = new LocalDatabaseMainRepository(config.Database.MainDbPath);
         var saveGameRepo = new LocalDatabaseSaveGameRepository(config.Database.SaveGameDbPath);
-        var tts = CreateTts(config.Tts);
-        var stt = CreateStt(config.Stt);
-        var mainLlm = CreateLlm("main", config.Llm.Main);
-        var simpleLlm = CreateLlm("simple", config.Llm.Simple);
+        // Swappable, so changed settings take effect without a restart
+        var tts = new SwitchableTextToSpeech(CreateTts(config.Tts));
+        var stt = new SwitchableSpeechToText(CreateStt(config.Stt));
+        var mainLlm = new SwitchableLlm(CreateLlm("main", config.Llm.Main));
+        var simpleLlm = new SwitchableLlm(CreateLlm("simple", config.Llm.Simple));
         var lua = new LuaSandbox();
         var httpServer = new HttpServer(config.HttpServer);
 
-        return new ServerApplication(mainRepo, saveGameRepo, tts, stt, mainLlm, simpleLlm, lua, httpServer, config.Director, config.Tts.Mp3Speed);
+        var settings = new SettingsStore(configPath, configTypeInfo, config, new LiveSettings(config, mainLlm, simpleLlm, tts, stt));
+        if (panel) {
+            httpServer.AddEndpoints(new PanelEndpoints(settings, httpServer, saveGameRepo, version, restart).Map);
+            Log.Info("Settings panel: http://localhost:{Port}/", config.HttpServer.Port);
+        }
+        else {
+            Log.Info("Settings panel off");
+        }
+
+        return new ServerApplication(mainRepo, saveGameRepo, tts, stt, mainLlm, simpleLlm, lua, httpServer, config.Director, config.Tts.Mp3Speed, settings);
     }
 
-    private static ITextToSpeech CreateTts(TtsSection config) {
-        Log.Info("Creating text-to-speech: {Provider}", config.Provider);
+    // announce false: a provider made for a look, like the panel's connection test, not for use
+    internal static ITextToSpeech CreateTts(TtsSection config, bool announce = true) {
+        if (announce) {
+            Log.Info("Creating text-to-speech: {Provider}", config.Provider);
+        }
         return config.Provider switch {
             "dummy" => new DummyTextToSpeech(),
             "elevenlabs" => new ElevenLabsTextToSpeech(config.ElevenLabs
@@ -56,8 +76,10 @@ public static class ServerBootstrap {
         };
     }
 
-    private static ISpeechToText CreateStt(SttSection config) {
-        Log.Info("Creating speech-to-text: {Provider}", config.Provider);
+    internal static ISpeechToText CreateStt(SttSection config, bool announce = true) {
+        if (announce) {
+            Log.Info("Creating speech-to-text: {Provider}", config.Provider);
+        }
         return config.Provider switch {
             "dummy" => new DummySpeechToText(),
             "deepgram" => new DeepgramSpeechToText(config.Deepgram
@@ -68,8 +90,10 @@ public static class ServerBootstrap {
         };
     }
 
-    private static ILlm CreateLlm(string role, LlmProviderSection config) {
-        Log.Info("Creating {Role} LLM: {Provider}", role, config.Provider);
+    internal static ILlm CreateLlm(string role, LlmProviderSection config, bool announce = true) {
+        if (announce) {
+            Log.Info("Creating {Role} LLM: {Provider}", role, config.Provider);
+        }
         return config.Provider switch {
             "dummy" => new DummyLlm(),
             "gemini" => new GeminiLlm(config.Gemini

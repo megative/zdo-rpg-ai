@@ -1,0 +1,13 @@
+# Хрисскар соглашается пойти с игроком и говорит что-то, когда они добираются до Балморы
+name: Хрисскар идёт в Балмору
+director: { companions: true, interjections: false }
+steps:
+  - target: hrisskar_flat-foot
+    say: Хрисскар, проводишь меня до Балморы? Заплачу двадцать монет на месте.
+    expect:
+      - replies: hrisskar_flat-foot
+      - action: { npc: hrisskar_flat-foot, kind: follow }
+  - go: "Balmora, Caius Cosades' House"
+    expect:
+      - replies: hrisskar_flat-foot
+      - judge: Хрисскар сказал пару слов о Балморе или о дороге, без пересказа всего разговора

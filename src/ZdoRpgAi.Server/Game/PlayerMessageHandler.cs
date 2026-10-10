@@ -16,6 +16,8 @@ public class PlayerMessageHandler {
 
     public event Action<string, string?, string, string>? PlayerSpoke;
     public event Action<string, string>? PlayerApproached;
+    // The player id and the cell they entered
+    public event Action<string, string>? PlayerChangedCell;
 
     public PlayerMessageHandler(ISpeechToText stt, IRpcChannel rpc) {
         _stt = stt;
@@ -41,6 +43,9 @@ public class PlayerMessageHandler {
                 break;
             case nameof(ModToServerMessageType.TargetChanged):
                 HandleTargetChanged(msg);
+                break;
+            case nameof(ModToServerMessageType.CellChange):
+                HandleCellChange(msg);
                 break;
         }
     }
@@ -152,6 +157,14 @@ public class PlayerMessageHandler {
         }
 
         PlayerApproached?.Invoke(payload.PlayerId, payload.NpcId);
+    }
+
+    private void HandleCellChange(Message msg) {
+        var payload = msg.Json?.DeserializeSafe(PayloadJsonContext.Default.CellChangePayload);
+        if (payload == null) {
+            return;
+        }
+        PlayerChangedCell?.Invoke(payload.PlayerId, payload.CellName);
     }
 
     private record SpeakingSession(string PlayerId, string? TargetCharacterId, string GameTime);

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using ZdoRpgAi.Core;
+using ZdoRpgAi.ModEmulator;
 using ZdoRpgAi.Protocol.Channel;
 
 namespace ZdoRpgAi.ModEmulator.Console;
@@ -14,11 +15,12 @@ public class EmulatorServer {
     private readonly WebApplication _app;
     private readonly int _maxMessageSize = 10 * 1024 * 1024;
 
-    private EmulatorSession? _session;
+    private EmulatedGame? _session;
 
-    public EmulatorSession? Session => _session;
+    public EmulatedGame? Session => _session;
 
-    public EmulatorServer(string host, int port) {
+    // The world outlives a connection: a client that reconnects finds it as it left it
+    public EmulatorServer(string host, int port, EmulatedWorld world) {
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
         builder.WebHost.UseUrls($"http://{host}:{port}");
@@ -37,12 +39,12 @@ public class EmulatorServer {
 
             Log.Info("Client connected");
 
-            var session = new EmulatorSession(channel);
+            var session = new EmulatedGame(channel, world);
             _session = session;
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             await Task.WhenAll(
-                session.RunAsync(cts.Token),
+                session.RunAsync(cts.Token, target: world.Npcs[0].ObjectId),
                 channel.RunWebSocketAsync()
             );
 

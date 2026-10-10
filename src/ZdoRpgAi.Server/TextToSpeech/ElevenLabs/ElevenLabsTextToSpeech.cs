@@ -1,10 +1,12 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.TextToSpeech.ElevenLabs;
 
-public class ElevenLabsTextToSpeech : ITextToSpeech {
+public class ElevenLabsTextToSpeech : ITextToSpeech, IModelCatalog, IVoiceCatalog {
     private static readonly ILog Log = Logger.Get<ElevenLabsTextToSpeech>();
 
     private readonly HttpClient _http;
@@ -28,6 +30,39 @@ public class ElevenLabsTextToSpeech : ITextToSpeech {
         _voiceIdByRaceSex = config.VoiceIdMapping.ByRaceSex;
         _http = new HttpClient();
         _http.DefaultRequestHeaders.Add("xi-api-key", config.ApiKey);
+    }
+
+    public async Task<List<CatalogItem>> ListModelsAsync() {
+        var models = JsonNode.Parse(await GetAsync("https://api.elevenlabs.io/v1/models")) as JsonArray ?? [];
+        return [.. models
+            .Where(m => m?["model_id"] != null && m["can_do_text_to_speech"]?.GetValue<bool>() != false)
+            .Select(m => new CatalogItem(m!["model_id"]!.GetValue<string>(), m["name"]?.GetValue<string>()))];
+    }
+
+    // "Rachel · female, young, american"
+    public async Task<List<CatalogItem>> ListVoicesAsync() {
+        var items = new List<CatalogItem>();
+        foreach (var voice in JsonNode.Parse(await GetAsync("https://api.elevenlabs.io/v1/voices"))?["voices"]?.AsArray() ?? []) {
+            var id = voice?["voice_id"]?.GetValue<string>();
+            if (id == null) {
+                continue;
+            }
+            var labels = voice?["labels"];
+            var traits = new[] { labels?["gender"], labels?["age"], labels?["accent"] }
+                .Select(l => l is JsonValue v && v.TryGetValue<string>(out var t) && t.Length > 0 ? t : null).OfType<string>().ToList();
+            var name = voice?["name"]?.GetValue<string>() ?? id;
+            items.Add(new CatalogItem(id, traits.Count > 0 ? $"{name} · {string.Join(", ", traits)}" : name));
+        }
+        return items;
+    }
+
+    private async Task<string> GetAsync(string url) {
+        var resp = await _http.GetAsync(url);
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode) {
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, body));
+        }
+        return body;
     }
 
     public async Task<ITextToSpeechOutput> GenerateAsync(ITextToSpeechInput input) {
@@ -55,7 +90,7 @@ public class ElevenLabsTextToSpeech : ITextToSpeech {
         if (!resp.IsSuccessStatusCode) {
             var error = await resp.Content.ReadAsStringAsync();
             Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, error);
-            throw new Exception($"ElevenLabs API error {resp.StatusCode}: {error}");
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, error));
         }
 
         var audio = await resp.Content.ReadAsByteArrayAsync();

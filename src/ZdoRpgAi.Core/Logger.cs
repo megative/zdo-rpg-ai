@@ -33,7 +33,7 @@ public class LogConfig {
 }
 
 public static class Logger {
-    public static ILog Get<T>() => new SerilogLog(Log.ForContext<T>());
+    public static ILog Get<T>() => new SerilogLog(typeof(T));
     public static void Flush() => Log.CloseAndFlush();
 
     public static void Configure(LogConfig config) {
@@ -88,17 +88,33 @@ public static class Logger {
     };
 }
 
-internal class SerilogLog(ILogger logger) : ILog {
-    public void Trace(string message) => logger.Verbose(message);
-    public void Trace(string template, params object[] args) => logger.Verbose(template, args);
-    public void Debug(string message) => logger.Debug(message);
-    public void Debug(string template, params object[] args) => logger.Debug(template, args);
-    public void Info(string message) => logger.Information(message);
-    public void Info(string template, params object[] args) => logger.Information(template, args);
-    public void Warn(string message) => logger.Warning(message);
-    public void Warn(string template, params object[] args) => logger.Warning(template, args);
-    public void Error(string message) => logger.Error(message);
-    public void Error(string template, params object[] args) => logger.Error(template, args);
-    public void Error(Exception ex, string message) => logger.Error(ex, message);
-    public void Error(Exception ex, string template, params object[] args) => logger.Error(ex, template, args);
+// Follows Log.Logger: the server configures logging anew when it restarts with changed settings,
+// and loggers kept in static fields since the start must write to the new one
+internal class SerilogLog(Type source) : ILog {
+    private ILogger? _root;
+    private ILogger? _logger;
+
+    private ILogger Current {
+        get {
+            var root = Log.Logger;
+            if (!ReferenceEquals(root, _root) || _logger == null) {
+                _logger = root.ForContext(source);
+                _root = root;
+            }
+            return _logger;
+        }
+    }
+
+    public void Trace(string message) => Current.Verbose(message);
+    public void Trace(string template, params object[] args) => Current.Verbose(template, args);
+    public void Debug(string message) => Current.Debug(message);
+    public void Debug(string template, params object[] args) => Current.Debug(template, args);
+    public void Info(string message) => Current.Information(message);
+    public void Info(string template, params object[] args) => Current.Information(template, args);
+    public void Warn(string message) => Current.Warning(message);
+    public void Warn(string template, params object[] args) => Current.Warning(template, args);
+    public void Error(string message) => Current.Error(message);
+    public void Error(string template, params object[] args) => Current.Error(template, args);
+    public void Error(Exception ex, string message) => Current.Error(ex, message);
+    public void Error(Exception ex, string template, params object[] args) => Current.Error(ex, template, args);
 }

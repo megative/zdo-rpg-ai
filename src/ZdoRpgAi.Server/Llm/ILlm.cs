@@ -20,6 +20,9 @@ public class LlmRequest {
 
 public class LlmResponse {
     public string? Text { get; init; }
+    // Why there is no answer: an API error, a refusal. The settings panel's connection test shows it;
+    // NPCs just stay silent.
+    public string? Error { get; init; }
     public List<LlmToolCall>? ToolCalls { get; init; }
     // The model's turn as the provider returned it, with any thinking signatures: to continue the
     // conversation after tool calls, it goes back in an LlmMessage unchanged

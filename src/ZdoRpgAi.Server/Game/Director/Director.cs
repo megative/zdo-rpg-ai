@@ -26,6 +26,8 @@ public class Director {
 
     private int PlayerInterruptionIteration => Volatile.Read(ref _playerInterruptionIteration);
 
+    internal SimpleReactiveStrategy Strategy => _simpleReactive;
+
     public Director(Story.Story story, DirectorHelper directorHelper, NpcSpeechGenerator npcSpeechGenerator, IRpcChannel rpc, ILlm mainLlm, ILlm simpleLlm, NpcRepository npcRepo, DirectorSection config, RumorMill rumors, ISaveGameRepository saveGameRepo) {
         _story = story;
         _directorHelper = directorHelper;
@@ -109,9 +111,16 @@ public class Director {
 
         Log.Trace("Using strategy {Strategy}", strategy.GetType().Name);
         try {
+            var iteration = PlayerInterruptionIteration;
             var newEvents = await strategy.ProcessStoryEventsAsync(events);
             Log.Trace("Strategy returned {Count} new events", newEvents.Count);
             await RegisterAndPublishAsync(newEvents);
+
+            // Someone nearby may cut in once the answer is out, unless the player spoke meanwhile
+            if (events.Last() is StoryEvent.PlayerSpeak && newEvents.OfType<StoryEvent.NpcSpeak>().LastOrDefault() is { } reply
+                && PlayerInterruptionIteration == iteration) {
+                await RegisterAndPublishAsync(await _simpleReactive.InterjectAsync(reply));
+            }
         }
         catch (Exception ex) {
             Log.Error("Strategy {Strategy} failed: {Error}", strategy.GetType().Name, ex.Message);

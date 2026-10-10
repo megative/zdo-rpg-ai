@@ -14,10 +14,22 @@
     <PackageReference Include="KeraLua" Version="1.4.9" />
   </ItemGroup>
 
+  <!-- The web panel's page, built into the server -->
+  <ItemGroup>
+    <EmbeddedResource Include="Panel/wwwroot/*" LogicalName="panel/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- The emulator runs the game in its own process for scenarios, and the tests drive it -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZdoRpgAi.ModEmulator" />
+    <InternalsVisibleTo Include="ZdoRpgAi.Tests" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\ZdoRpgAi.Core\ZdoRpgAi.Core.csproj" />
     <ProjectReference Include="..\ZdoRpgAi.Protocol\ZdoRpgAi.Protocol.csproj" />
     <ProjectReference Include="..\ZdoRpgAi.Repository\ZdoRpgAi.Repository.csproj" />
+    <ProjectReference Include="..\ZdoRpgAi.Util\ZdoRpgAi.Util.csproj" />
   </ItemGroup>
 
 </Project>

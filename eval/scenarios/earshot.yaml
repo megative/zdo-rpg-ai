@@ -1,0 +1,13 @@
+# Фаргот стоит в 11 м от игрока: что игрок говорит Селлусу вполголоса, он не слышит
+name: Кто что слышал
+director: { interjections: false }
+steps:
+  - target: sellus_gravius
+    say: У меня в мешке немного лунного сахара. Сколько возьмёшь, чтобы не заметить?
+    expect:
+      - replies: sellus_gravius
+  - target: fargoth
+    say: Привет, Фаргот. Что нового?
+    expect:
+      - replies: fargoth
+      - promptLacks: { npc: fargoth, text: Сколько возьмёшь, чтобы не заметить }

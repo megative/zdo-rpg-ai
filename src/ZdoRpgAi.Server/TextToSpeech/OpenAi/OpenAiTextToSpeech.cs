@@ -1,10 +1,12 @@
 using System.Text;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.TextToSpeech.OpenAi;
 
-public class OpenAiTextToSpeech : ITextToSpeech {
+public class OpenAiTextToSpeech : ITextToSpeech, IModelCatalog {
     private static readonly ILog Log = Logger.Get<OpenAiTextToSpeech>();
 
     private readonly HttpClient _http = new();
@@ -22,6 +24,8 @@ public class OpenAiTextToSpeech : ITextToSpeech {
         _http.Timeout = TimeSpan.FromSeconds(20);
         _http.DefaultRequestHeaders.Add("Authorization", $"Bearer {config.ApiKey}");
     }
+
+    public Task<List<CatalogItem>> ListModelsAsync() => OpenAiModelList.ListAsync(_http, _baseUrl, ModelTask.Speech);
 
     public async Task<ITextToSpeechOutput> GenerateAsync(ITextToSpeechInput input) {
         var voice = ResolveVoice(input.npcRace, input.npcSex);
@@ -44,7 +48,7 @@ public class OpenAiTextToSpeech : ITextToSpeech {
         if (!resp.IsSuccessStatusCode) {
             var error = await resp.Content.ReadAsStringAsync();
             Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, error);
-            throw new Exception($"OpenAI TTS API error {resp.StatusCode}: {error}");
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, error));
         }
 
         var audio = await resp.Content.ReadAsByteArrayAsync();

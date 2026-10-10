@@ -4,10 +4,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using ZdoRpgAi.Core;
 using ZdoRpgAi.Protocol.Messages;
+using ZdoRpgAi.Server.Util;
+using ZdoRpgAi.Server.Catalog;
 
 namespace ZdoRpgAi.Server.Llm.Gemini;
 
-public class GeminiLlm : ILlm {
+public class GeminiLlm : ILlm, IModelCatalog {
     private static readonly ILog Log = Logger.Get<GeminiLlm>();
     private static readonly JsonWriterOptions WriterOptions = new() { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
@@ -20,6 +22,24 @@ public class GeminiLlm : ILlm {
         _apiKey = config.ApiKey;
         _model = config.Model;
         _thinkingBudget = config.ThinkingBudget;
+    }
+
+    public async Task<List<CatalogItem>> ListModelsAsync() {
+        var resp = await _http.GetAsync($"https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key={_apiKey}");
+        var body = await resp.Content.ReadAsStringAsync();
+        if (!resp.IsSuccessStatusCode) {
+            throw new HttpRequestException(ApiError.Describe(resp.StatusCode, body));
+        }
+
+        var items = new List<CatalogItem>();
+        foreach (var model in JsonNode.Parse(body)?["models"]?.AsArray() ?? []) {
+            var name = model?["name"]?.GetValue<string>();
+            var methods = model?["supportedGenerationMethods"]?.AsArray().Select(m => m?.GetValue<string>()) ?? [];
+            if (name != null && methods.Contains("generateContent")) {
+                items.Add(new CatalogItem(name.StartsWith("models/") ? name["models/".Length..] : name, model?["displayName"]?.GetValue<string>()));
+            }
+        }
+        return items;
     }
 
     public async Task<LlmResponse> ChatAsync(LlmRequest request) {
@@ -60,7 +80,7 @@ public class GeminiLlm : ILlm {
 
         if (!resp.IsSuccessStatusCode) {
             Log.Error("API error {StatusCode}: {Response}", resp.StatusCode, respJson);
-            return new LlmResponse { Text = null };
+            return new LlmResponse { Error = ApiError.Describe(resp.StatusCode, respJson) };
         }
 
         Log.Trace("Raw response: {Response}", respJson);
@@ -193,7 +213,7 @@ public class GeminiLlm : ILlm {
             else {
                 Log.Warn("Empty response (no candidates)");
             }
-            return new LlmResponse { Text = null };
+            return new LlmResponse { Error = blockReason != null ? $"blocked ({blockReason})" : "empty response" };
         }
 
         string? text = null;

@@ -6,6 +6,7 @@ using ZdoRpgAi.Server.Bootstrap;
 using ZdoRpgAi.Server.Http;
 using ZdoRpgAi.Server.Llm;
 using ZdoRpgAi.Server.Lua;
+using ZdoRpgAi.Server.Settings;
 using ZdoRpgAi.Server.SpeechToText;
 using ZdoRpgAi.Server.Util.Mp3;
 using ZdoRpgAi.Server.TextToSpeech;
@@ -20,6 +21,7 @@ public class ServerApplication : IDisposable {
     private readonly IMainRepository _mainRepo;
     private readonly ISaveGameRepository _saveGameRepo;
     private readonly ISpeechToText _stt;
+    private readonly SettingsStore _settings;
     private readonly object _lock = new();
 
     private RpcChannel? _activeRpc;
@@ -28,11 +30,12 @@ public class ServerApplication : IDisposable {
     public ServerApplication(
         IMainRepository mainRepo, ISaveGameRepository saveGameRepo,
         ITextToSpeech tts, ISpeechToText stt, ILlm mainLlm, ILlm simpleLlm, LuaSandbox lua,
-        HttpServer httpServer, DirectorSection directorConfig, Mp3SpeedConfig mp3SpeedConfig) {
+        HttpServer httpServer, DirectorSection directorConfig, Mp3SpeedConfig mp3SpeedConfig, SettingsStore settings) {
         _mainRepo = mainRepo;
         _saveGameRepo = saveGameRepo;
         _stt = stt;
         _httpServer = httpServer;
+        _settings = settings;
         _game = new Game.GameRunner(mainRepo, saveGameRepo, _reusableRpc, tts, stt, mainLlm, simpleLlm, lua, directorConfig, mp3SpeedConfig);
 
         _httpServer.ClientConnected += OnClientConnected;
@@ -40,6 +43,8 @@ public class ServerApplication : IDisposable {
 
     public async Task RunAsync(CancellationToken ct) {
         Log.Info("Server started");
+        // Edits to the config file by hand take effect while the server runs
+        _settings.StartWatching();
         // The HTTP host stops on its own on SIGTERM, so background game loops follow it, not just ct
         using var gameCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         var game = _game.RunAsync(gameCts.Token);
@@ -54,6 +59,7 @@ public class ServerApplication : IDisposable {
     }
 
     public void Dispose() {
+        _settings.Dispose();
         _stt.Dispose();
         _saveGameRepo.Dispose();
         _mainRepo.Dispose();

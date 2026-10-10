@@ -22,6 +22,14 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         _db = Open(path);
     }
 
+    public string SaveId {
+        get {
+            lock (_lock) {
+                return _saveId;
+            }
+        }
+    }
+
     public bool SetSaveContext(string saveId) {
         lock (_lock) {
             if (saveId == _saveId) {
@@ -271,6 +279,82 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
+    public RawNpcTask? GetOpenNpcTask(long taskId) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT id, npcId, description, reward FROM npc_task WHERE id = $id AND status = $status";
+            cmd.Parameters.AddWithValue("$id", taskId);
+            cmd.Parameters.AddWithValue("$status", nameof(NpcTaskStatus.Open));
+            using var reader = cmd.ExecuteReader();
+            return reader.Read() ? ReadTask(reader) : null;
+        }
+    }
+
+    public void AddQuestSteps(long taskId, (string NpcId, string Goal)[] steps) {
+        lock (_lock) {
+            using var tx = _db.Connection.BeginTransaction();
+            for (var i = 0; i < steps.Length; i++) {
+                using var cmd = _db.Connection.CreateCommand();
+                cmd.CommandText = "INSERT INTO quest_step (taskId, idx, npcId, goal) VALUES ($taskId, $idx, $npcId, $goal)";
+                cmd.Parameters.AddWithValue("$taskId", taskId);
+                cmd.Parameters.AddWithValue("$idx", i);
+                cmd.Parameters.AddWithValue("$npcId", steps[i].NpcId);
+                cmd.Parameters.AddWithValue("$goal", steps[i].Goal);
+                cmd.ExecuteNonQuery();
+            }
+            tx.Commit();
+        }
+    }
+
+    public List<RawQuestStep> GetQuestSteps(long taskId) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT idx, npcId, goal, done FROM quest_step WHERE taskId = $taskId ORDER BY idx";
+            cmd.Parameters.AddWithValue("$taskId", taskId);
+            var steps = new List<RawQuestStep>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                steps.Add(new RawQuestStep(taskId, reader.GetInt32(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3) != 0));
+            }
+            return steps;
+        }
+    }
+
+    public bool MarkQuestStepDone(long taskId, int index) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "UPDATE quest_step SET done = 1 WHERE taskId = $taskId AND idx = $idx AND done = 0";
+            cmd.Parameters.AddWithValue("$taskId", taskId);
+            cmd.Parameters.AddWithValue("$idx", index);
+            return cmd.ExecuteNonQuery() > 0;
+        }
+    }
+
+    public List<RawNpcTask> GetQuestsAwaiting(string npcId) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT t.id, t.npcId, t.description, t.reward
+                FROM npc_task t
+                JOIN quest_step s ON s.taskId = t.id
+                WHERE t.status = $open AND s.npcId = $npcId AND s.done = 0
+                  AND s.idx = (SELECT MIN(idx) FROM quest_step WHERE taskId = t.id AND done = 0)
+                ORDER BY t.id
+                """;
+            cmd.Parameters.AddWithValue("$open", nameof(NpcTaskStatus.Open));
+            cmd.Parameters.AddWithValue("$npcId", npcId);
+            var tasks = new List<RawNpcTask>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                tasks.Add(ReadTask(reader));
+            }
+            return tasks;
+        }
+    }
+
+    private static RawNpcTask ReadTask(Microsoft.Data.Sqlite.SqliteDataReader reader) =>
+        new(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3));
+
     public bool CloseNpcTask(long taskId, string npcId, NpcTaskStatus status, string gameTime) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
@@ -299,16 +383,31 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
             return null;
         }
 
-        var data = JsonSerializer.Deserialize(json, NpcDataJsonContext.Default.NpcDataJson);
-        if (data == null) {
-            return null;
-        }
+        return ToNpcInfo(npcId, json);
+    }
 
-        return new RawNpcInfo(npcId, data.Name, data.Race, data.Sex, data.ClassName, data.Faction, data.FactionRank, data.Personality);
+    public List<RawNpcInfo> GetKnownNpcs() {
+        var rows = new List<(string Id, string Json)>();
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT id, dataJson FROM npc_new";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                rows.Add((reader.GetString(0), reader.GetString(1)));
+            }
+        }
+        return rows.Select(r => ToNpcInfo(r.Id, r.Json)).OfType<RawNpcInfo>().ToList();
+    }
+
+    private static RawNpcInfo? ToNpcInfo(string npcId, string json) {
+        var data = JsonSerializer.Deserialize(json, NpcDataJsonContext.Default.NpcDataJson);
+        return data == null ? null : new RawNpcInfo(npcId, data.Name, data.Race, data.Sex, data.ClassName, data.Faction, data.FactionRank,
+            data.Personality, data.LastCell, data.LastSeenGameSeconds);
     }
 
     public void SaveNpcInfo(RawNpcInfo info) {
-        var json = JsonSerializer.Serialize(new NpcDataJson(info.Name, info.Race, info.Sex, info.ClassName, info.Faction, info.FactionRank, info.Personality), NpcDataJsonContext.Default.NpcDataJson);
+        var json = JsonSerializer.Serialize(new NpcDataJson(info.Name, info.Race, info.Sex, info.ClassName, info.Faction, info.FactionRank, info.Personality,
+            info.LastCell, info.LastSeenGameSeconds), NpcDataJsonContext.Default.NpcDataJson);
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = """
@@ -321,6 +420,38 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
+    public void AddCompanion(string npcId, string gameTime) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "INSERT INTO companion (npcId, sinceGameTime) VALUES ($npcId, $gameTime) ON CONFLICT(npcId) DO NOTHING";
+            cmd.Parameters.AddWithValue("$npcId", npcId);
+            cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public void RemoveCompanion(string npcId) {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM companion WHERE npcId = $npcId";
+            cmd.Parameters.AddWithValue("$npcId", npcId);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    public string[] GetCompanions() {
+        lock (_lock) {
+            using var cmd = _db.Connection.CreateCommand();
+            cmd.CommandText = "SELECT npcId FROM companion ORDER BY sinceGameTime, npcId";
+            var ids = new List<string>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read()) {
+                ids.Add(reader.GetString(0));
+            }
+            return [.. ids];
+        }
+    }
+
     public void Dispose() {
         lock (_lock) {
             _db.Dispose();
@@ -329,7 +460,8 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
 }
 
 internal record NpcDataJson(string Name, string Race, string Sex,
-    string? ClassName = null, string? Faction = null, string? FactionRank = null, string? Personality = null);
+    string? ClassName = null, string? Faction = null, string? FactionRank = null, string? Personality = null,
+    string? LastCell = null, double? LastSeenGameSeconds = null);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(NpcDataJson))]
