@@ -1,15 +1,34 @@
 # macOS
 
-## 1. Install the tools
+## 1. Install OpenMW and Morrowind
 
-You need OpenMW 0.50 or newer with Morrowind, already set up. Install the rest with [Homebrew](https://brew.sh):
+Get OpenMW from [GitHub](https://github.com/OpenMW/openmw/releases/latest): the macOS `.dmg`, the arm64 build on Apple Silicon. Drag `OpenMW.app` into Applications. Homebrew won't do here: its `openmw` cask is disabled because it fails the Gatekeeper check. For the same reason macOS blocks the first launch. Allow it in **System Settings → Privacy & Security → Open Anyway**, or lift the quarantine:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/OpenMW.app
+```
+
+OpenMW is only the engine; the game data must be your own. GOG is the easiest: download the offline installer for Windows from your library (the `.exe` and its `.bin`) and unpack it without Windows:
+
+```sh
+brew install innoextract
+innoextract -d ~/Games/Morrowind ~/Downloads/setup_the_elder_scrolls_iii_morrowind_goty*.exe
+```
+
+Steam for Mac won't download the Windows game, so a Steam copy is easiest to bring over from any Windows PC: you need its `Data Files` folder.
+
+On its first start OpenMW runs a wizard: say the game is already installed and point it to the folder with `Morrowind.esm`.
+
+## 2. Install the tools
+
+Install the rest with [Homebrew](https://brew.sh):
 
 ```sh
 brew install --cask dotnet-sdk
 brew install ffmpeg git
 ```
 
-## 2. Get the code
+## 3. Get the code
 
 ```sh
 mkdir -p ~/Games && cd ~/Games
@@ -17,7 +36,7 @@ git clone https://github.com/megative/zdo-rpg-ai
 git clone https://github.com/megative/zdo-rpg-ai-openmw-mod
 ```
 
-## 3. Add the mod to OpenMW
+## 4. Add the mod to OpenMW
 
 Add the mod's folder in the launcher (**Data Files → Directories**, then tick `zdorpgai.omwscripts` on **Content Files**), or append two lines to `~/Library/Preferences/openmw/openmw.cfg`:
 
@@ -26,7 +45,7 @@ data="/Users/<you>/Games/zdo-rpg-ai-openmw-mod/zdorpgai"
 content=zdorpgai.omwscripts
 ```
 
-## 4. Create the configs
+## 5. Create the configs
 
 ```sh
 cd ~/Games/zdo-rpg-ai
@@ -50,7 +69,7 @@ voiceCapture:
 
 Then fill in the server config: which AI to use and your keys. The [Configure](../configuration.md) page has ready-made setups.
 
-## 5. Start everything
+## 6. Start everything
 
 ```sh
 ./run.sh

@@ -2,6 +2,12 @@
 
 Two files, both in YAML: `.tmp/server-config.yaml` for the server and `.tmp/client-config.yaml` for the client. Start from the examples in the repository's `example` folder; anything you leave out keeps its default.
 
+## The settings panel
+
+While the server runs, its settings open in the browser at [localhost:8080](http://localhost:8080/) (the address is in the server's first lines). Whatever you change there is written straight into `server-config.yaml`, with your comments left in place, and most of it takes effect at once. The panel also tests the connection to each service, lists the models and voices your keys give access to, and restarts the server when a setting needs it.
+
+The panel answers on this computer only and asks for no password: it edits the same file you could edit by hand. To start the server without it, add `--no-panel`.
+
 ## Ready-made setups
 
 The server uses two language models: **main** for conversations, where quality matters, and **simple** for small jobs like sketching an NPC's character, writing their banter, or guessing whom you're talking to, where speed and price matter. Speech recognition (`stt`) and voices (`tts`) are separate services.
@@ -123,6 +129,27 @@ director:
 `banter`
 :   Every interval, with this chance, two NPCs near you chat with each other while you're quiet.
 
+### Cutting in, companions, quests { #quests }
+
+```yaml
+director:
+  interjections: true
+  interjectionChance: 0.3
+  companions: true
+  companionTalkIntervalSeconds: 240
+  companionTalkChance: 0.5
+  questChains: false
+```
+
+`interjections`
+:   After an NPC answers you, with this chance someone standing close who heard it may chime in, or keep quiet if they have nothing to say.
+
+`companions`
+:   Whoever follows you has a word on arriving in another town or region, and every interval, with this chance, when it has been quiet for a while.
+
+`questChains`
+:   Alpha. NPCs may give small quests of one or two steps that send you to people you've already talked to, then back for the reward. Off by default.
+
 ### Voices for every race
 
 With OpenAI voices, each race and sex can get a voice of its own. The key is the first letter of the race plus `m` or `f`: `d` Dark Elf, `h` High Elf, `w` Wood Elf, `i` Imperial, `n` Nord, `b` Breton, `r` Redguard, `o` Orc, `a` Argonian, `k` Khajiit. Missing keys fall back to `voice`.
@@ -180,6 +207,8 @@ httpServer:
 
 Use `127.0.0.1` when the client runs on the same machine, `0.0.0.0` to accept clients from your network. With the server reachable from the network, set `clientToken` to a secret and put the same value into the client's `server.clientToken`.
 
+A new port or host takes a server restart: the panel has a button for it. The client needs the same port in its `server.port`, and it reads its config only when it starts.
+
 ## The client { #client }
 
 ```yaml
@@ -203,6 +232,12 @@ voiceCapture:
     releaseDelayMs: 400
 
 stripDiacritics: false
+
+eventLog:
+  key: L
+
+textInput:
+  key: Enter
 ```
 
 `server`
@@ -228,3 +263,9 @@ stripDiacritics: false
 
 `stripDiacritics`
 :   Removes accents from subtitles, for game fonts that lack them.
+
+`eventLog.key`
+:   Steps through the [log](playing.md#log): what NPCs did for you, then the conversation, then closed. Takes the same key names as `voiceCapture.pushToTalk.key`.
+
+`textInput.key`
+:   Opens a line to [type what to say](playing.md#typing) instead of speaking. Same key names.

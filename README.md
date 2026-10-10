@@ -6,7 +6,7 @@
 
 **Morrowind talks back.**
 
-Walk up to anyone in Vvardenfell, hold a key and say what you want. They answer in their own voice, remember you, haggle, follow you or pick a fight, gossip about what you did, and keep the game's quests intact.
+Hold Y and talk to anyone in Vvardenfell. They answer in their own voice, remember you, and when you strike a deal, they actually do it.
 
 [Website](https://megative.github.io/zdo-rpg-ai/) · [Install](https://megative.github.io/zdo-rpg-ai/install/) · [Configure](https://megative.github.io/zdo-rpg-ai/configuration/) · [Play](https://megative.github.io/zdo-rpg-ai/playing/) · [По-русски](https://megative.github.io/zdo-rpg-ai/ru/)
 
@@ -16,26 +16,17 @@ Walk up to anyone in Vvardenfell, hold a key and say what you want. They answer 
 
 ## What it does
 
-- **Talk with your voice.** Hold the push-to-talk key and speak, in any language. The NPC turns to you and answers out loud, with subtitles and a voice that suits their race and sex.
-- **They remember you.** Each NPC gets a character of their own and remembers what you said and did, separately for every save. Come back later and they greet you first.
-- **They act, not just talk.** Gifts, payments and bribes move real items and gold, checked against both inventories. NPCs follow you, fight, warm up or cool down to you, and open their trade, training, travel, spell and repair windows.
-- **The town talks.** Go quiet, and people nearby chat among themselves. Your deeds travel as rumors.
-- **Quests stay intact.** NPCs read your journal and know the quest steps the game gives through them; when a quest is at stake, they hand you over to the game's own dialogue and name the topic to pick. They also give small tasks of their own, with real rewards.
-- **True to the lore.** Mention a place or a topic, and the NPC recalls what they would say about it in the original dialogue.
-- **Your choice of AI.** Claude, OpenAI or Gemini, or everything local.
-- **Windows, Linux, macOS.** Wherever OpenMW runs, including its Windows build under Wine or Proton.
+- **Voice or text.** Hold the push-to-talk key and speak, in any language, or press Enter and type. The NPC turns to you and answers out loud, with subtitles and a voice that suits their race.
+- **They remember you.** Each NPC gets a character and a memory of you, separate for every save. Come back later and they greet you first.
+- **They know only their part.** Your journal is seen by those in the quest, a secret faction by its members, and what you said by whoever stood close.
+- **They act on it.** Items and gold change hands for real, checked against both inventories. NPCs follow you, fight, warm up or cool down to you, and open their trade, training and travel windows.
+- **Companions.** Whoever comes along has a word on arriving somewhere new, and speaks up on a quiet road.
+- **The town has a life.** Neighbours chat among themselves, bystanders cut in, and a fight or a gift is known around town a couple of game hours later.
+- **Tasks and quests.** NPCs give tasks of their own with real rewards and hand the game's quests over to its own dialogue. Small multi-step quests are there to try, as an alpha.
+- **In-game log.** L shows what you got and were asked to do; press again for the conversation.
+- **Any model.** Claude, OpenAI or Gemini, or everything local. A settings panel in the browser lists the models and checks your keys.
 
-## A taste
-
-Unscripted lines from a real playthrough, translated from Russian:
-
-> **You, to Fargoth:** Fargoth, I apologized. I want my torch.
->
-> **Fargoth:** Yes, yes, I heard! Sellus says you mumbled like a drunken netch, but he accepted it. The mayor keeps his word: here's your torch, take it!
->
-> *Fargoth gives you a torch and marks his task done.*
-
-Later, with the player standing nearby, Fargoth brags to a guard that he apologized to Ganciel Duar himself. "Nobody elected you mayor, Fargoth," she says.
+The website has [scenes to try on a first evening](https://megative.github.io/zdo-rpg-ai/#scenes-for-a-first-evening).
 
 ## How it works
 
@@ -45,7 +36,7 @@ flowchart LR
     client <-- WebSocket --> server["<b>Server</b><br>speech, AI, voices, memory"]
 ```
 
-- The **mod** knows who is around, what they carry and what your journal says. It shows subtitles, plays voices and carries out NPC actions.
+- The **mod** knows who is around and what they carry. It shows subtitles, plays voices, carries out NPC actions and keeps the log.
 - The **client** records your voice while you hold the key and passes messages between the game and the server.
 - The **server** turns speech into text, asks the AI what the NPC says and does, voices the answer and keeps every NPC's memory. It can run on another machine.
 
@@ -90,9 +81,20 @@ Ready-made setups, from Claude with OpenAI voices to fully local, are on the [Co
 | `src/ZdoRpgAi.Server*` | The server: speech, the AI director, voices, memory |
 | `src/ZdoRpgAi.Client*` | The client: microphone, push-to-talk, the link to the mod |
 | `src/ZdoRpgAi.Protocol` | Messages between the server, the client and the mod |
-| `src/ZdoRpgAi.ModEmulator.Console` | A stand-in for the game, for testing without OpenMW |
+| `src/ZdoRpgAi.ModEmulator*` | A stand-in for the game: by hand without OpenMW, or playing scenarios against the server in-process |
+| `tests/` | Tests, with the server's game part run against the emulated game |
+| `eval/scenarios/` | Scenarios that check how a model plays NPCs |
 | `example/` | Example configs |
 | `website/` | The website, built with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) |
+
+Run the tests, then play the scenarios with the models of your config (each run spends a few tokens); the [Scenarios](https://megative.github.io/zdo-rpg-ai/scenarios/) page explains the format:
+
+```sh
+dotnet test
+dotnet run --project src/ZdoRpgAi.ModEmulator.Console -- --scenarios eval/scenarios --config .tmp/server-config.yaml --report report.md
+```
+
+The mod's tests run with Lua 5.4 or newer, from the mod's repository: `lua tests/mod_test.lua` and `lua tests/scene_secrets_test.lua`.
 
 Preview the website locally:
 
@@ -107,7 +109,7 @@ Pushes to `main` that touch `website/` publish it to GitHub Pages.
 
 - [drzdo](https://github.com/drzdo) created Zdo RPG AI and its OpenMW mod, an evolution of [immersive_morrowind_llm_ai](https://github.com/drzdo/immersive_morrowind_llm_ai).
 - [waterbobo24](https://github.com/waterbobo24): richer NPC and player context, in-game time, item transfers and per-save memory are ported from their forks [Morrowind-llm-server-client](https://github.com/waterbobo24/Morrowind-llm-server-client) and [Morrowind-llm-mod](https://github.com/waterbobo24/Morrowind-llm-mod).
-- [megative](https://github.com/megative) maintains this fork.
+- [megative](https://github.com/megative) maintains this fork: voices, Claude, tasks and quests, banter, rumors, companions, the in-game log, typing, the settings panel and test scenarios.
 
 ## License
 

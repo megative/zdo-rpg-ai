@@ -43,6 +43,14 @@ Look at the server's output right after you speak:
 - On macOS, allow your terminal to use the microphone in **System Settings → Privacy & Security → Microphone**.
 - Speech recognized in the wrong language: set `stt.openAi.language` (or `stt.deepgram.language`) to the language you speak.
 
+## The text line doesn't type
+
+Click it: Lua in OpenMW can't put the cursor there on its own. If the line doesn't open at all, check `textInput.key` in the client config, and that no other game window is open at the moment.
+
+## An NPC doesn't know what it should
+
+Usually that's on purpose. An NPC knows what it saw and heard itself, and a conversation carries about ten metres. Your journal is seen only by those in a quest, secret factions only by their members, and the town hears of deeds a couple of game hours later. If the NPC really should have known, check it with a scenario: [prompt checks](scenarios.md) show exactly what it was told.
+
 ## Answers are slow
 
 - Keep `effort: low` for Claude, `thinkingBudget: 0` for Gemini.

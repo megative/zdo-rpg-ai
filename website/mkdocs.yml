@@ -1,6 +1,6 @@
 site_name: Zdo RPG AI
 site_url: https://megative.github.io/zdo-rpg-ai/
-site_description: Talk to the people of Morrowind with your own voice. AI-driven NPC conversations for OpenMW.
+site_description: Talk to the people of Morrowind by voice or by typing. A mod for OpenMW.
 repo_url: https://github.com/megative/zdo-rpg-ai
 repo_name: megative/zdo-rpg-ai
 copyright: Zdo RPG AI is free software under the GPL-3.0. Not affiliated with Bethesda Softworks or the OpenMW team.
@@ -63,6 +63,7 @@ nav:
       - macOS: install/macos.md
   - Configure: configuration.md
   - Play: playing.md
+  - Scenarios: scenarios.md
   - Troubleshooting: troubleshooting.md
 
 plugins:
@@ -80,13 +81,14 @@ plugins:
         - locale: ru
           name: Русский
           build: true
-          site_description: Говори с жителями Морровинда своим голосом. Живые NPC на ИИ для OpenMW.
+          site_description: Говори с жителями Морровинда голосом или текстом. Мод для OpenMW.
           copyright: Zdo RPG AI распространяется под лицензией GPL-3.0. Проект не связан с Bethesda Softworks и командой OpenMW.
           nav_translations:
             Home: Главная
             Install: Установка
             Configure: Настройка
             Play: Игра
+            Scenarios: Сценарии
             Troubleshooting: Если что-то не так
 
 markdown_extensions:
