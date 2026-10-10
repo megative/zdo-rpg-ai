@@ -6,5 +6,6 @@ public static class All {
         new SaveGame002(),
         new SaveGame003(),
         new SaveGame004(),
+        new SaveGame005(),
     ];
 }

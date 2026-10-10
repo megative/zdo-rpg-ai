@@ -70,16 +70,13 @@ public class BanterScheduler {
 
     private async Task<List<StoryEvent>> ComposeBanterAsync() {
         var around = await _directorHelper.QueryObserversAsync(PlayerId, null, MaxDistanceMeters);
+        SaveTimeline.Follow(_saveGameRepo, around.SaveId, around.GameSeconds);
         var pair = around.Nearby
             .OrderBy(c => c.DistanceMeters)
             .Take(2)
             .ToArray();
         if (pair.Length < 2) {
             return [];
-        }
-
-        if (around.SaveId != null) {
-            _saveGameRepo.SetSaveContext(around.SaveId);
         }
 
         var a = await _npcRepo.GetNpcInfoAsync(pair[0].CharacterId);

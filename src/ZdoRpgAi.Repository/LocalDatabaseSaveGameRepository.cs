@@ -60,18 +60,19 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         return db;
     }
 
-    public long AddStoryEvent(string gameTime, string realTime, string type, string dataJson) {
+    public long AddStoryEvent(string gameTime, string realTime, string type, string dataJson, double? gameSeconds = null) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = """
-                INSERT INTO story_event (gameTime, realTime, type, dataJson)
-                VALUES ($gameTime, $realTime, $type, $dataJson)
+                INSERT INTO story_event (gameTime, realTime, type, dataJson, gameSeconds)
+                VALUES ($gameTime, $realTime, $type, $dataJson, $gameSeconds)
                 RETURNING id
                 """;
             cmd.Parameters.AddWithValue("$gameTime", gameTime);
             cmd.Parameters.AddWithValue("$realTime", realTime);
             cmd.Parameters.AddWithValue("$type", type);
             cmd.Parameters.AddWithValue("$dataJson", dataJson);
+            cmd.Parameters.AddWithValue("$gameSeconds", (object?)gameSeconds ?? DBNull.Value);
             return (long)cmd.ExecuteScalar()!;
         }
     }
@@ -246,12 +247,12 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
-    public long AddNpcTask(string npcId, string description, string? reward, string gameTime) {
+    public long AddNpcTask(string npcId, string description, string? reward, string gameTime, double? gameSeconds = null) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = """
-                INSERT INTO npc_task (npcId, description, reward, status, createdGameTime)
-                VALUES ($npcId, $description, $reward, $status, $gameTime)
+                INSERT INTO npc_task (npcId, description, reward, status, createdGameTime, createdGameSeconds)
+                VALUES ($npcId, $description, $reward, $status, $gameTime, $gameSeconds)
                 RETURNING id
                 """;
             cmd.Parameters.AddWithValue("$npcId", npcId);
@@ -259,6 +260,7 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
             cmd.Parameters.AddWithValue("$reward", (object?)reward ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$status", nameof(NpcTaskStatus.Open));
             cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            cmd.Parameters.AddWithValue("$gameSeconds", (object?)gameSeconds ?? DBNull.Value);
             return (long)cmd.ExecuteScalar()!;
         }
     }
@@ -320,10 +322,11 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
-    public bool MarkQuestStepDone(long taskId, int index) {
+    public bool MarkQuestStepDone(long taskId, int index, double? gameSeconds = null) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = "UPDATE quest_step SET done = 1 WHERE taskId = $taskId AND idx = $idx AND done = 0";
+            cmd.CommandText = "UPDATE quest_step SET done = 1, doneGameSeconds = $gameSeconds WHERE taskId = $taskId AND idx = $idx AND done = 0";
+            cmd.Parameters.AddWithValue("$gameSeconds", (object?)gameSeconds ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$taskId", taskId);
             cmd.Parameters.AddWithValue("$idx", index);
             return cmd.ExecuteNonQuery() > 0;
@@ -355,15 +358,16 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
     private static RawNpcTask ReadTask(Microsoft.Data.Sqlite.SqliteDataReader reader) =>
         new(reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.IsDBNull(3) ? null : reader.GetString(3));
 
-    public bool CloseNpcTask(long taskId, string npcId, NpcTaskStatus status, string gameTime) {
+    public bool CloseNpcTask(long taskId, string npcId, NpcTaskStatus status, string gameTime, double? gameSeconds = null) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
             cmd.CommandText = """
-                UPDATE npc_task SET status = $status, closedGameTime = $gameTime
+                UPDATE npc_task SET status = $status, closedGameTime = $gameTime, closedGameSeconds = $gameSeconds
                 WHERE id = $id AND npcId = $npcId AND status = $open
                 """;
             cmd.Parameters.AddWithValue("$status", status.ToString());
             cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            cmd.Parameters.AddWithValue("$gameSeconds", (object?)gameSeconds ?? DBNull.Value);
             cmd.Parameters.AddWithValue("$id", taskId);
             cmd.Parameters.AddWithValue("$npcId", npcId);
             cmd.Parameters.AddWithValue("$open", nameof(NpcTaskStatus.Open));
@@ -420,12 +424,16 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
         }
     }
 
-    public void AddCompanion(string npcId, string gameTime) {
+    public void AddCompanion(string npcId, string gameTime, double? gameSeconds = null) {
         lock (_lock) {
             using var cmd = _db.Connection.CreateCommand();
-            cmd.CommandText = "INSERT INTO companion (npcId, sinceGameTime) VALUES ($npcId, $gameTime) ON CONFLICT(npcId) DO NOTHING";
+            cmd.CommandText = """
+                INSERT INTO companion (npcId, sinceGameTime, sinceGameSeconds) VALUES ($npcId, $gameTime, $gameSeconds)
+                ON CONFLICT(npcId) DO NOTHING
+                """;
             cmd.Parameters.AddWithValue("$npcId", npcId);
             cmd.Parameters.AddWithValue("$gameTime", gameTime);
+            cmd.Parameters.AddWithValue("$gameSeconds", (object?)gameSeconds ?? DBNull.Value);
             cmd.ExecuteNonQuery();
         }
     }
@@ -449,6 +457,63 @@ public class LocalDatabaseSaveGameRepository : ISaveGameRepository, IDisposable 
                 ids.Add(reader.GetString(0));
             }
             return [.. ids];
+        }
+    }
+
+    public int ForgetAfter(double gameSeconds) {
+        lock (_lock) {
+            var conn = _db.Connection;
+            using (var check = conn.CreateCommand()) {
+                check.CommandText = """
+                    SELECT EXISTS(SELECT 1 FROM story_event WHERE gameSeconds > $t)
+                        OR EXISTS(SELECT 1 FROM npc_task WHERE createdGameSeconds > $t OR closedGameSeconds > $t)
+                        OR EXISTS(SELECT 1 FROM quest_step WHERE doneGameSeconds > $t)
+                        OR EXISTS(SELECT 1 FROM companion WHERE sinceGameSeconds > $t)
+                    """;
+                check.Parameters.AddWithValue("$t", gameSeconds);
+                if ((long)check.ExecuteScalar()! == 0) {
+                    return 0;
+                }
+            }
+
+            using var tx = conn.BeginTransaction();
+            using var cmd = conn.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.Parameters.AddWithValue("$t", gameSeconds);
+            cmd.Parameters.AddWithValue("$open", nameof(NpcTaskStatus.Open));
+            // A summary that took in a later event knows the future, and so does any summary it was
+            // consolidated into: they go, and what they had archived comes back
+            cmd.CommandText = """
+                CREATE TEMP TABLE IF NOT EXISTS forgotten_summary (id INTEGER PRIMARY KEY);
+                DELETE FROM forgotten_summary;
+                INSERT INTO forgotten_summary
+                    WITH RECURSIVE tainted(id) AS (
+                        SELECT archivedTo FROM story_event WHERE gameSeconds > $t AND archivedTo IS NOT NULL
+                        UNION
+                        SELECT s.archivedTo FROM story_event_summary s JOIN tainted ON s.id = tainted.id
+                        WHERE s.archivedTo IS NOT NULL)
+                    SELECT id FROM tainted;
+                DELETE FROM story_event_summary_observer WHERE summaryId IN (SELECT id FROM forgotten_summary);
+                DELETE FROM story_event_summary WHERE id IN (SELECT id FROM forgotten_summary);
+                UPDATE story_event_summary SET archivedTo = NULL WHERE archivedTo IN (SELECT id FROM forgotten_summary);
+                UPDATE story_event SET archivedTo = NULL WHERE archivedTo IN (SELECT id FROM forgotten_summary);
+                DELETE FROM story_event_observer WHERE storyEventId IN (SELECT id FROM story_event WHERE gameSeconds > $t);
+                """;
+            cmd.ExecuteNonQuery();
+
+            cmd.CommandText = "DELETE FROM story_event WHERE gameSeconds > $t";
+            var events = cmd.ExecuteNonQuery();
+
+            cmd.CommandText = """
+                DELETE FROM quest_step WHERE taskId IN (SELECT id FROM npc_task WHERE createdGameSeconds > $t);
+                DELETE FROM npc_task WHERE createdGameSeconds > $t;
+                UPDATE npc_task SET status = $open, closedGameTime = NULL, closedGameSeconds = NULL WHERE closedGameSeconds > $t;
+                UPDATE quest_step SET done = 0, doneGameSeconds = NULL WHERE doneGameSeconds > $t;
+                DELETE FROM companion WHERE sinceGameSeconds > $t;
+                """;
+            cmd.ExecuteNonQuery();
+            tx.Commit();
+            return events;
         }
     }
 

@@ -122,9 +122,7 @@ public class StoryComposer {
 
         // Every story starts with the player, so switching here keeps memories in the right
         // playthrough even after a load or a server restart
-        if (observers.SaveId != null && _saveGameRepo.SetSaveContext(observers.SaveId)) {
-            Log.Info("Switched to the memory of save {SaveId}", observers.SaveId);
-        }
+        SaveTimeline.Follow(_saveGameRepo, observers.SaveId, observers.GameSeconds);
         return observers;
     }
 }

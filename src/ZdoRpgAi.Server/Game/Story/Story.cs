@@ -23,7 +23,7 @@ public class Story : IStory {
     public StoryEvent RegisterEvent(StoryEvent evt, string[] observerCharacterIds) {
         var type = evt.GetType().Name;
         var dataJson = JsonSerializer.Serialize(evt, StoryEventJsonContext.Default.StoryEvent);
-        var id = _saveGameRepo.AddStoryEvent(evt.GameTime, evt.RealTime, type, dataJson);
+        var id = _saveGameRepo.AddStoryEvent(evt.GameTime, evt.RealTime, type, dataJson, evt.GameSeconds);
         _saveGameRepo.AddStoryEventObservers(id, observerCharacterIds);
         Log.Info("Registered story event #{Id}: {Type} ({ObserverCount} observers)", id, type, observerCharacterIds.Length);
         var registered = evt with { Id = id };
